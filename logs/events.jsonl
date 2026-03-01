@@ -1,0 +1,30 @@
+{"event": "task_queued", "time": 1772324588.4770286, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "files": 3}
+{"event": "task_started", "time": 1772324588.4777935, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "files": 3}
+{"event": "file_processing", "time": 1772324588.4787898, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "file": "uploads/668d7d1f-3da0-415b-9e26-fc03e5cdd9fa__2.docx"}
+{"event": "file_processing", "time": 1772324588.5023434, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "file": "uploads/668d7d1f-3da0-415b-9e26-fc03e5cdd9fa_Lab_1.pdf"}
+{"event": "file_processing", "time": 1772324589.3217654, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "file": "uploads/668d7d1f-3da0-415b-9e26-fc03e5cdd9fa_1_.docx"}
+{"event": "llm_call_started", "time": 1772324589.3373735, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa"}
+{"event": "llm_call_finished", "time": 1772324709.4820354, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "duration": 120.14448666572571, "input_size": 21900, "output_size": 15349}
+{"event": "html_created", "time": 1772324709.9917073, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa"}
+{"event": "docx_created", "time": 1772324710.319849, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa", "path": "tmp/668d7d1f-3da0-415b-9e26-fc03e5cdd9fa.docx"}
+{"event": "task_completed", "time": 1772324710.3199983, "task_id": "668d7d1f-3da0-415b-9e26-fc03e5cdd9fa"}
+{"event": "task_queued", "time": 1772368846.4572673, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "files": 3}
+{"event": "task_started", "time": 1772368846.4579914, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "files": 3}
+{"event": "file_processing", "time": 1772368846.4597633, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "file": "uploads/739eb8f5-0674-451e-8bcf-44daf4eac8df__2.docx"}
+{"event": "file_processing", "time": 1772368846.4915664, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "file": "uploads/739eb8f5-0674-451e-8bcf-44daf4eac8df_Lab_1.pdf"}
+{"event": "file_processing", "time": 1772368847.3195658, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "file": "uploads/739eb8f5-0674-451e-8bcf-44daf4eac8df_1_.pdf"}
+{"event": "llm_call_started", "time": 1772368847.4410155, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df"}
+{"event": "llm_call_finished", "time": 1772369127.3673983, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "duration": 279.92616271972656, "input_size": 24099, "output_size": 18468}
+{"event": "html_created", "time": 1772369127.479074, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df"}
+{"event": "docx_created", "time": 1772369135.318473, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df", "path": "tmp/739eb8f5-0674-451e-8bcf-44daf4eac8df.docx"}
+{"event": "task_completed", "time": 1772369135.318621, "task_id": "739eb8f5-0674-451e-8bcf-44daf4eac8df"}
+{"event": "task_queued", "time": 1772377054.3940544, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "files": 3}
+{"event": "task_started", "time": 1772377054.3954244, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "files": 3}
+{"event": "file_processing", "time": 1772377054.3966575, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "file": "uploads/cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2__2.docx"}
+{"event": "file_processing", "time": 1772377076.2607846, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "file": "uploads/cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2_Lab_1.pdf"}
+{"event": "file_processing", "time": 1772377077.9143949, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "file": "uploads/cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2_1_.docx"}
+{"event": "llm_call_started", "time": 1772377089.1446931, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2"}
+{"event": "llm_call_finished", "time": 1772377377.199144, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "duration": 288.0521273612976, "input_size": 28151, "output_size": 23663}
+{"event": "html_created", "time": 1772377377.4032514, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2"}
+{"event": "docx_created", "time": 1772377390.79955, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "path": "tmp/cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2.docx"}
+{"event": "task_completed", "time": 1772377390.7998493, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2"}
