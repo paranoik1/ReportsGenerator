@@ -1,11 +1,12 @@
+from typing import TYPE_CHECKING
+
 from docx.document import Document as DocumentObject
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Mm, Pt
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from docx.styles.style import ParagraphStyle, BaseStyle
+    from docx.styles.style import BaseStyle, ParagraphStyle
 
 
 def configure_normal_style(doc: DocumentObject) -> "ParagraphStyle":
@@ -29,18 +30,19 @@ def configure_normal_style(doc: DocumentObject) -> "ParagraphStyle":
     return normal_style
 
 
-def configure_lists_styles(doc: DocumentObject, base_style: "ParagraphStyle") -> list["ParagraphStyle"]:
-    list_style: "ParagraphStyle" = doc.styles['List Bullet']
+def configure_lists_styles(
+    doc: DocumentObject, base_style: "ParagraphStyle"
+) -> list["ParagraphStyle"]:
+    list_style: "ParagraphStyle" = doc.styles["List Bullet"]
     list_style.base_style = base_style
     list_style.paragraph_format.first_line_indent = Cm(1.25)  # Красная строка
     list_style.paragraph_format.left_indent = Cm(0)  # Красная строка
     list_style
 
-    list_numbered_style: "ParagraphStyle" = doc.styles['List Number']
+    list_numbered_style: "ParagraphStyle" = doc.styles["List Number"]
     list_numbered_style.base_style = base_style
     list_numbered_style.paragraph_format.first_line_indent = Cm(1.25)  # Красная строка
     list_numbered_style.paragraph_format.left_indent = Cm(0)  # Красная строка
-
 
     return [list_numbered_style, list_style]
 
@@ -64,17 +66,17 @@ def create_code_style(doc: DocumentObject, base_style: "BaseStyle") -> "Paragrap
 
     return code_style
 
-def create_content_table_style(doc: DocumentObject, base_style: "BaseStyle") -> "ParagraphStyle":
+
+def create_content_table_style(
+    doc: DocumentObject, base_style: "BaseStyle"
+) -> "ParagraphStyle":
     table_content_style = doc.styles.add_style("Table Content", WD_STYLE_TYPE.PARAGRAPH)
 
-    # Наследуем базовые настройки от base_style (чтобы не копировать всё вручную)
     table_content_style.base_style = base_style
 
-    # Переопределяем параметры для кода
     table_content_style.font.name = "Times New Roman"
-    table_content_style.font.size = Pt(12)
+    table_content_style.font.size = Pt(14)
 
-    # Убираем отступ первой строки и уменьшаем межстрочный интервал
     table_content_style.paragraph_format.first_line_indent = Cm(0)
     table_content_style.paragraph_format.line_spacing = 1.15
 
@@ -84,8 +86,32 @@ def create_content_table_style(doc: DocumentObject, base_style: "BaseStyle") -> 
 def setup_document_styles(doc: DocumentObject):
     """
     Настраивает стили документа:
-    - Normal: Times New Roman 14, межстрочный 1.5, отступ первой строки 1.25 см
-    - CodeStyle: Courier New 11, межстрочный 1.0, без отступа
+
+    - Normal:
+    Times New Roman 14 pt,
+    межстрочный интервал 1.5,
+    выравнивание по ширине,
+    отступ первой строки 1.25 см,
+    без дополнительных интервалов до и после абзаца.
+
+    - List Bullet и List Number:
+    наследуют Normal,
+    шрифт и интервалы как у основного текста,
+    отступ первой строки 1.25 см,
+    левый отступ 0 см.
+
+    - Code Style:
+    Courier New 11 pt,
+    межстрочный интервал 1.0,
+    без отступа первой строки,
+    небольшие интервалы сверху и снизу,
+    используется для фрагментов кода.
+
+    - Table Content:
+    Times New Roman 14 pt,
+    межстрочный интервал 1.15,
+    без отступа первой строки,
+    применяется для текста внутри таблиц.
     """
 
     # Получаем существующий стиль Normal (встроенный стиль по умолчанию)

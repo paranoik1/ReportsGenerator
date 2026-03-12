@@ -1,12 +1,13 @@
-from bs4 import BeautifulSoup, Tag, NavigableString
+from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.document import Document as DocumentObject
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from utils.docx_styles import setup_document_styles
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.table import _Cell
- 
+
+from utils.docx_styles import setup_document_styles
+
 
 def set_cell_border(cell: _Cell, **kwargs):
     """
@@ -22,30 +23,29 @@ def set_cell_border(cell: _Cell, **kwargs):
     """
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
- 
+
     # check for tag existnace, if none found, then create one
     tcBorders = tcPr.first_child_found_in("w:tcBorders")
     if tcBorders is None:
-        tcBorders = OxmlElement('w:tcBorders')
+        tcBorders = OxmlElement("w:tcBorders")
         tcPr.append(tcBorders)
- 
+
     # list over all available tags
-    for edge in ('start', 'top', 'end', 'bottom', 'insideH', 'insideV'):
+    for edge in ("start", "top", "end", "bottom", "insideH", "insideV"):
         edge_data = kwargs.get(edge)
         if edge_data:
-            tag = 'w:{}'.format(edge)
- 
+            tag = "w:{}".format(edge)
+
             # check for tag existnace, if none found, then create one
             element = tcBorders.find(qn(tag))
             if element is None:
                 element = OxmlElement(tag)
                 tcBorders.append(element)
- 
+
             # looks like order of attributes is important
             for key in ["sz", "val", "color", "space", "shadow"]:
                 if key in edge_data:
-                    element.set(qn('w:{}'.format(key)), str(edge_data[key]))
-
+                    element.set(qn("w:{}".format(key)), str(edge_data[key]))
 
 
 class HTMLToDocx:
@@ -89,6 +89,9 @@ class HTMLToDocx:
         elif name == "table":
             self.handle_table(node)
 
+        elif name == "code":
+            self.handle_code_block(node)
+
         else:
             for child in node.children:
                 self.handle_block(child)
@@ -106,9 +109,17 @@ class HTMLToDocx:
         src = tag.get("src")
         if src:
             try:
-                self.doc.add_picture(src) # type: ignore
+                self.doc.add_picture(src)  # type: ignore
             except FileNotFoundError:
                 print("Файл изображения не найден:", src)
+
+    def handle_code_block(self, tag: Tag):
+        """
+        Обрабатывает блок кода <code>.
+        Использует стиль 'Code Style', определенный в docx_styles.py.
+        """
+        code_text = tag.get_text()
+        self.doc.add_paragraph(code_text, style="Code Style")
 
     def handle_list(self, tag: Tag, ordered: bool, level: int):
         style = "List Number" if ordered else "List Bullet"
@@ -140,13 +151,21 @@ class HTMLToDocx:
             max_cols = max(max_cols, len(row_data))
             table_data.append(row_data)
 
-        table = self.doc.add_table(rows=len(table_data), cols=max_cols, style = 'Normal Table')
+        table = self.doc.add_table(
+            rows=len(table_data), cols=max_cols, style="Normal Table"
+        )
 
         for i, row in enumerate(table_data):
             for j, cell_tag in enumerate(row):
                 cell = table.cell(i, j)
                 cell_style = {"sz": 5, "val": "single"}
-                set_cell_border(cell, top=cell_style, bottom=cell_style, start=cell_style, end=cell_style)
+                set_cell_border(
+                    cell,
+                    top=cell_style,
+                    bottom=cell_style,
+                    start=cell_style,
+                    end=cell_style,
+                )
 
                 paragraph = cell.paragraphs[0]
                 paragraph.clear()
@@ -192,7 +211,6 @@ class HTMLToDocx:
         else:
             self.render_inline(tag, paragraph)
 
-
 def html_to_docx(html_path: str, docx_path: str):
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
@@ -207,12 +225,12 @@ def html_to_docx(html_path: str, docx_path: str):
 
 if __name__ == "__main__":
     import markdown
+
     with open("tmp/report2.md") as fp:
         md_result = fp.read()
 
     html_result = markdown.markdown(
-        md_result,
-        extensions=["extra", "sane_lists", "nl2br"]
+        md_result, extensions=["extra", "sane_lists", "nl2br"]
     )
 
     with open("tmp/report2.html", "w") as fp:

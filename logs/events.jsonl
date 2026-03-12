@@ -28,3 +28,17 @@
 {"event": "html_created", "time": 1772377377.4032514, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2"}
 {"event": "docx_created", "time": 1772377390.79955, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2", "path": "tmp/cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2.docx"}
 {"event": "task_completed", "time": 1772377390.7998493, "task_id": "cc0eb9cf-4111-4c2c-bd39-cf4e88a442b2"}
+{"event": "task_queued", "time": 1772391466.1544542, "task_id": "55086852-bffb-4646-b9fc-bf0cf0e21409", "files": 2}
+{"event": "task_started", "time": 1772391466.156165, "task_id": "55086852-bffb-4646-b9fc-bf0cf0e21409", "files": 2}
+{"event": "file_processing", "time": 1772391466.1598976, "task_id": "55086852-bffb-4646-b9fc-bf0cf0e21409", "file": "uploads/55086852-bffb-4646-b9fc-bf0cf0e21409_Lab_1.pdf"}
+{"event": "file_processing", "time": 1772391467.5619812, "task_id": "55086852-bffb-4646-b9fc-bf0cf0e21409", "file": "uploads/55086852-bffb-4646-b9fc-bf0cf0e21409_1_.docx"}
+{"event": "llm_call_started", "time": 1772391470.9580364, "task_id": "55086852-bffb-4646-b9fc-bf0cf0e21409"}
+{"event": "task_queued", "time": 1772392816.7280953, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "files": 2}
+{"event": "task_started", "time": 1772392816.7291205, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "files": 2}
+{"event": "file_processing", "time": 1772392816.7299504, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "file": "uploads/1f598397-9b09-4e05-aa02-44694d2a190d_Lab_1.pdf"}
+{"event": "file_processing", "time": 1772392817.796464, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "file": "uploads/1f598397-9b09-4e05-aa02-44694d2a190d_1_.docx"}
+{"event": "llm_call_started", "time": 1772392820.0074158, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d"}
+{"event": "llm_call_finished", "time": 1772393138.0858, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "duration": 318.07815408706665, "input_size": 25684, "output_size": 20194}
+{"event": "html_created", "time": 1772393138.2705443, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d"}
+{"event": "docx_created", "time": 1772393150.7115982, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d", "path": "tmp/1f598397-9b09-4e05-aa02-44694d2a190d.docx"}
+{"event": "task_completed", "time": 1772393150.711747, "task_id": "1f598397-9b09-4e05-aa02-44694d2a190d"}
