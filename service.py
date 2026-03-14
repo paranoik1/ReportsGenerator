@@ -40,10 +40,6 @@ class Task:
     orchestrator: Orchestrator | None = None
     state: AgentState | None = None
 
-    # Human-in-the-loop
-    pending_task: str = ""
-    pending_code: str = ""
-
     # Результат
     result_path: str | None = None
     html_path: str | None = None
@@ -295,38 +291,6 @@ def status(task_id):
         response["error"] = task.error
 
     return jsonify(response)
-
-
-@app.route("/approve/<task_id>", methods=["POST"])
-def approve(task_id):
-    """Обработка решения пользователя по проверке кода."""
-    try:
-        data = request.get_json()
-        approved = data.get("approved", False)
-        edited_code = data.get("edited_code")
-
-        task = tasks.get(task_id)
-        if not task:
-            return jsonify({"error": "Task not found"}), 404
-
-        if not task.orchestrator or not task.state:
-            return jsonify({"error": "Orchestrator state not found"}), 404
-
-        # Обрабатываем решение
-        task.orchestrator.approve_code(task.state, approved, edited_code)
-
-        if approved:
-            log_event("code_approved", task_id=task_id, edited=edited_code is not None)
-            resume_task(task)
-        else:
-            log_event("code_rejected", task_id=task_id)
-            task.status = "error"
-            task.error = "Код отклонён пользователем"
-
-        return jsonify({"success": True})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/view_html/<task_id>")
