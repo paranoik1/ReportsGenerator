@@ -211,6 +211,7 @@ class HTMLToDocx:
         else:
             self.render_inline(tag, paragraph)
 
+
 def html_to_docx(html_path: str, docx_path: str):
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()

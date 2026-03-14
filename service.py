@@ -1,18 +1,19 @@
 import json
 import logging
-import pypandoc
 import os
 import threading
-import uuid
 import time
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
+
 import markdown
+import pypandoc
 from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
-from ai import Orchestrator, AgentState, Document, create_state
+from ai import AgentState, Document, Orchestrator, create_state
 from utils.md2docx import html_to_docx
 
 UPLOAD_DIR = "uploads"
@@ -29,6 +30,7 @@ app = Flask(__name__)
 @dataclass
 class Task:
     """Задача на генерацию отчёта."""
+
     task_id: str
     status: str = "queued"
     user_prompt: str = ""
@@ -38,10 +40,6 @@ class Task:
     orchestrator: Orchestrator | None = None
     state: AgentState | None = None
 
-    # Прогресс
-    steps: list[dict] = field(default_factory=list)
-    current_step: int = 0
-
     # Human-in-the-loop
     pending_task: str = ""
     pending_code: str = ""
@@ -50,6 +48,20 @@ class Task:
     result_path: str | None = None
     html_path: str | None = None
     error: str | None = None
+
+    @property
+    def steps(self) -> list[dict]:
+        """Возвращает шаги из состояния."""
+        if not self.state or not self.state.steps:
+            raise ValueError(
+                "Свойство steps берет значение со AgentState объекта state, который None"
+            )
+        return [asdict(step) for step in self.state.steps]
+
+    @property
+    def current_step(self) -> int:
+        """Возвращает текущий шаг из состояния."""
+        return self.state.current_step if self.state else 0
 
 
 tasks: dict[str, Task] = {}
@@ -70,6 +82,7 @@ def log_event(event: str, **data):
 
 
 # ---------- FILE TEXT EXTRACTION ----------
+
 
 def extract_text(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
@@ -94,6 +107,7 @@ def extract_text(file_path: str) -> str:
 
 # ---------- HELPER FUNCTIONS ----------
 
+
 def check_pending_approval(task: Task) -> bool:
     """
     Проверяет, есть ли ожидание проверки кода.
@@ -104,7 +118,11 @@ def check_pending_approval(task: Task) -> bool:
         return False
 
     task.status = "pending_approval"
-    task.pending_task = state.steps[state.current_step].task if state.current_step < len(state.steps) else ""
+    task.pending_task = (
+        state.steps[state.current_step].task
+        if state.current_step < len(state.steps)
+        else ""
+    )
     task.pending_code = state.pending_approval.code
     log_event("task_pending_approval", task_id=task.task_id)
     return True
@@ -133,16 +151,6 @@ def run_orchestrator_step(task: Task):
         if not state:
             return
 
-    task.state = state
-    task.current_step = state.current_step
-
-    # Сохраняем шаги если они появились
-    if state.steps and not task.steps:
-        task.steps = [
-            {"agent": step.agent, "task": step.task}
-            for step in state.steps
-        ]
-
     # Проверяем состояние после шага
     if check_pending_approval(task):
         return
@@ -152,6 +160,7 @@ def run_orchestrator_step(task: Task):
 
 
 # ---------- BACKGROUND JOB ----------
+
 
 def background_task(task: Task):
     try:
@@ -163,9 +172,7 @@ def background_task(task: Task):
         # Создаём orchestrator и состояние
         orchestrator = Orchestrator()
         state = create_state(
-            user_prompt=task.user_prompt,
-            documents=documents,
-            task_id=task.task_id
+            user_prompt=task.user_prompt, documents=documents, task_id=task.task_id
         )
 
         task.orchestrator = orchestrator
@@ -230,6 +237,7 @@ def finalize_task(task: Task):
 
 # ---------- WEB ----------
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -238,7 +246,7 @@ def index():
 @app.route("/start", methods=["POST"])
 def start():
     task_id = str(uuid.uuid4())
-    
+
     user_prompt = request.form.get("prompt", "")
     files = request.files.getlist("files")
 
@@ -251,11 +259,7 @@ def start():
             saved_paths.append(path)
 
     # Создаём задачу
-    task = Task(
-        task_id=task_id,
-        user_prompt=user_prompt,
-        file_paths=saved_paths
-    )
+    task = Task(task_id=task_id, user_prompt=user_prompt, file_paths=saved_paths)
     tasks[task_id] = task
 
     log_event("task_queued", task_id=task_id, files=len(saved_paths))
@@ -269,7 +273,7 @@ def start():
 @app.route("/status/<task_id>")
 def status(task_id):
     task = tasks.get(task_id)
-    
+
     if not task:
         return jsonify({"status": "unknown"})
 
@@ -343,7 +347,7 @@ def download(task_id):
             task.result_path,
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             as_attachment=True,
-            download_name=f"report_{task_id[:8]}.docx"
+            download_name=f"report_{task_id[:8]}.docx",
         )
     return jsonify({"error": "File not found"}), 404
 
