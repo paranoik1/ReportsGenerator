@@ -4,17 +4,12 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
 
-import markdown
-import pypandoc
 from flask import Flask, jsonify, render_template, request, send_file
-from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
-from ai import AgentState, Document, Orchestrator, create_state
-from utils.md2docx import html_to_docx
+from ai import ReportGeneratorLLM, StateAgents
 
 UPLOAD_DIR = "uploads"
 TMP_DIR = "tmp"
@@ -35,29 +30,12 @@ class Task:
     status: str = "queued"
     user_prompt: str = ""
     file_paths: list[str] = field(default_factory=list)
+    template_path: str | None = None
 
-    # Для Orchestrator
-    orchestrator: Orchestrator | None = None
-    state: AgentState | None = None
+    # Состояние генерации отчета
+    state: StateAgents | None = None
 
-    # Результат
-    result_path: str | None = None
-    html_path: str | None = None
     error: str | None = None
-
-    @property
-    def steps(self) -> list[dict]:
-        """Возвращает шаги из состояния."""
-        if not self.state or not self.state.steps:
-            raise ValueError(
-                "Свойство steps берет значение со AgentState объекта state, который None"
-            )
-        return [asdict(step) for step in self.state.steps]
-
-    @property
-    def current_step(self) -> int:
-        """Возвращает текущий шаг из состояния."""
-        return self.state.current_step if self.state else 0
 
 
 tasks: dict[str, Task] = {}
@@ -77,153 +55,28 @@ def log_event(event: str, **data):
     )
 
 
-# ---------- FILE TEXT EXTRACTION ----------
-
-
-def extract_text(file_path: str) -> str:
-    ext = os.path.splitext(file_path)[1].lower()
-
-    if ext == ".pdf":
-        reader = PdfReader(file_path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-    elif ext == ".docx":
-        markdown_text = pypandoc.convert_file(
-            file_path, "markdown-simple_tables-grid_tables-multiline_tables"
-        )
-        return markdown_text
-
-    elif ext in [".txt", ".md"]:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-
-    else:
-        raise ValueError(f"Unsupported file type: {ext}")
-
-
-# ---------- HELPER FUNCTIONS ----------
-
-
-def check_pending_approval(task: Task) -> bool:
-    """
-    Проверяет, есть ли ожидание проверки кода.
-    Если есть — обновляет статус задачи и возвращает True.
-    """
-    state = task.state
-    if not state or not state.pending_approval:
-        return False
-
-    task.status = "pending_approval"
-    task.pending_task = (
-        state.steps[state.current_step].task
-        if state.current_step < len(state.steps)
-        else ""
-    )
-    task.pending_code = state.pending_approval.code
-    log_event("task_pending_approval", task_id=task.task_id)
-    return True
-
-
-def run_orchestrator_step(task: Task):
-    """
-    Запускает следующий шаг orchestrator.
-    Проверяет pending_approval, завершение задачи или ошибки.
-    """
-    orchestrator = task.orchestrator
-    state = task.state
-
-    if not (orchestrator and state):
-        return
-
-    task.status = "processing"
-
-    # Определяем, с чего начать: новый запуск или продолжение
-    if state.current_step == 0 and not state.steps:
-        state = orchestrator.run(state)
-    else:
-        state = orchestrator.resume_after_approval(state)
-
-    if TYPE_CHECKING:
-        if not state:
-            return
-
-    # Проверяем состояние после шага
-    if check_pending_approval(task):
-        return
-
-    if state.finished and state.report_markdown:
-        finalize_task(task)
-
-
 # ---------- BACKGROUND JOB ----------
 
 
 def background_task(task: Task):
+    """Фоновая задача генерации отчета."""
     try:
         log_event("task_started", task_id=task.task_id, files=len(task.file_paths))
 
-        # Создаём документы из файлов
-        documents = [Document(filepath=path) for path in task.file_paths]
+        orchestrator = ReportGeneratorLLM()
 
-        # Создаём orchestrator и состояние
-        orchestrator = Orchestrator()
-        state = create_state(
-            user_prompt=task.user_prompt, documents=documents, task_id=task.task_id
+        state = orchestrator.generate_report(
+            user_prompt=task.user_prompt,
+            file_paths=task.file_paths,
+            template_path=task.template_path,
+            task_id=task.task_id,
+            output_dir=TMP_DIR,
         )
 
-        task.orchestrator = orchestrator
         task.state = state
-
-        # Запускаем первый шаг
-        run_orchestrator_step(task)
-
-    except Exception as e:
-        task.status = "error"
-        task.error = str(e)
-        log_event("task_failed", task_id=task.task_id, error=str(e))
-
-
-def resume_task(task: Task):
-    """Возобновляет выполнение задачи после проверки кода."""
-    try:
-        run_orchestrator_step(task)
-    except Exception as e:
-        task.status = "error"
-        task.error = str(e)
-        log_event("task_failed", task_id=task.task_id, error=str(e))
-
-
-def finalize_task(task: Task):
-    """Финализирует задачу: генерирует HTML и DOCX."""
-    try:
-        log_event("finalizing_task", task_id=task.task_id)
-
-        if not task.state or not task.state.report_markdown:
-            raise ValueError("Нет отчёта для финализации")
-
-        md_result = task.state.report_markdown
-
-        html_result = markdown.markdown(
-            md_result, extensions=["extra", "sane_lists", "nl2br"]
-        )
-
-        html_path = os.path.join(TMP_DIR, f"{task.task_id}.html")
-        docx_path = os.path.join(TMP_DIR, f"{task.task_id}.docx")
-
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html_result)
-
-        log_event("html_created", task_id=task.task_id)
-
-        html_to_docx(html_path, docx_path)
-
-        log_event("docx_created", task_id=task.task_id, path=docx_path)
-
         task.status = "done"
-        task.result_path = docx_path
-        task.html_path = html_path
 
-        log_event("task_completed", task_id=task.task_id)
+        log_event("task_completed", task_id=task.task_id, result=state.report_docx_path)
 
     except Exception as e:
         task.status = "error"
@@ -245,6 +98,7 @@ def start():
 
     user_prompt = request.form.get("prompt", "")
     files = request.files.getlist("files")
+    template_file = request.files.get("template")
 
     saved_paths = []
     for file in files:
@@ -254,8 +108,18 @@ def start():
             file.save(path)
             saved_paths.append(path)
 
-    # Создаём задачу
-    task = Task(task_id=task_id, user_prompt=user_prompt, file_paths=saved_paths)
+    template_path = None
+    if template_file and template_file.filename:
+        filename = secure_filename(f"{task_id}_template_{template_file.filename}")
+        template_path = os.path.join(UPLOAD_DIR, filename)
+        template_file.save(template_path)
+
+    task = Task(
+        task_id=task_id,
+        user_prompt=user_prompt,
+        file_paths=saved_paths,
+        template_path=template_path,
+    )
     tasks[task_id] = task
 
     log_event("task_queued", task_id=task_id, files=len(saved_paths))
@@ -275,16 +139,10 @@ def status(task_id):
 
     response = {
         "status": task.status,
-        "steps": task.steps,
-        "current_step": task.current_step,
     }
 
-    if task.status == "pending_approval":
-        response["pending_task"] = task.pending_task
-        response["pending_code"] = task.pending_code
-
-    elif task.status == "done":
-        response["result"] = task.result_path
+    if task.status == "done" and task.state:
+        response["result"] = task.state.report_docx_path
         response["html_result"] = f"/view_html/{task_id}"
 
     elif task.status == "error":
@@ -297,8 +155,8 @@ def status(task_id):
 def view_html(task_id):
     """Просмотр HTML версии отчёта."""
     task = tasks.get(task_id)
-    if task and task.html_path and os.path.exists(task.html_path):
-        return send_file(task.html_path, mimetype="text/html")
+    if task and task.state and task.state.report_html_path:
+        return send_file(task.state.report_html_path, mimetype="text/html")
     return jsonify({"error": "HTML not found"}), 404
 
 
@@ -306,9 +164,9 @@ def view_html(task_id):
 def download(task_id):
     """Скачивание DOCX файла."""
     task = tasks.get(task_id)
-    if task and task.result_path and os.path.exists(task.result_path):
+    if task and task.state and task.state.report_docx_path:
         return send_file(
-            task.result_path,
+            task.state.report_docx_path,
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             as_attachment=True,
             download_name=f"report_{task_id[:8]}.docx",

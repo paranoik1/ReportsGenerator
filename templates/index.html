@@ -16,53 +16,9 @@
         .card {
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        .code-block {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .step-item {
-            border-left: 3px solid #0d6efd;
-            padding-left: 15px;
-            margin-bottom: 15px;
-        }
-        .step-item.completed {
-            border-left-color: #198754;
-            opacity: 0.7;
-        }
-        .step-item.active {
-            border-left-color: #ffc107;
-            background-color: #fff3cd;
-            padding: 10px 15px;
-            border-radius: 0 5px 5px 0;
-        }
-        .approval-section {
-            background-color: #e7f3ff;
-            border: 1px solid #0d6efd;
-            border-radius: 5px;
-            padding: 20px;
-            margin-top: 20px;
-        }
         .status-badge {
             font-size: 0.9em;
             padding: 5px 10px;
-        }
-        #logOutput {
-            background-color: #000;
-            color: #0f0;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
         }
     </style>
 </head>
@@ -89,39 +45,18 @@
                     <input type="file" class="form-control" id="files" name="files" multiple>
                     <div class="form-text">Можно выбрать несколько файлов</div>
                 </div>
+
+                <div class="mb-3">
+                    <label for="template" class="form-label">Пример отчёта (опционально)</label>
+                    <input type="file" class="form-control" id="template" name="template">
+                    <div class="form-text">Файл-образец, по структуре которого нужно сформировать отчёт</div>
+                </div>
                 
                 <button type="submit" class="btn btn-primary">
                     <span id="submitText">Запустить генерацию</span>
                     <span id="submitSpinner" class="spinner-border spinner-border-sm d-none"></span>
                 </button>
             </form>
-        </div>
-    </div>
-    
-    <!-- Секция Human-in-the-loop -->
-    <div id="approvalSection" class="approval-section d-none">
-        <h5>⚠️ Требуется проверка кода</h5>
-        <p>Агент сгенерировал код. Пожалуйста, проверьте его перед выполнением:</p>
-        
-        <div class="mb-3">
-            <label class="form-label">Задача:</label>
-            <p id="approvalTask" class="fw-bold"></p>
-        </div>
-        
-        <div class="mb-3">
-            <label class="form-label">Сгенерированный код:</label>
-            <div id="approvalCode" class="code-block"></div>
-        </div>
-        
-        <div class="mb-3">
-            <label for="editedCode" class="form-label">Отредактировать код (если нужно):</label>
-            <textarea class="form-control" id="editedCode" rows="8"></textarea>
-        </div>
-        
-        <div class="d-flex gap-2">
-            <button id="approveBtn" class="btn btn-success">✓ Одобрить и выполнить</button>
-            <button id="editApproveBtn" class="btn btn-warning">✎ Исправить и выполнить</button>
-            <button id="rejectBtn" class="btn btn-danger">✗ Отклонить</button>
         </div>
     </div>
     
@@ -132,20 +67,15 @@
             <span id="taskStatus" class="badge bg-info status-badge">Ожидание</span>
         </div>
         <div class="card-body">
-            <div id="stepsContainer"></div>
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <p class="mt-3">Генерация отчёта...</p>
+            </div>
         </div>
     </div>
-    
-    <!-- Лог событий -->
-    <div class="card d-none" id="logCard">
-        <div class="card-header">
-            <h5>📋 Лог событий</h5>
-        </div>
-        <div class="card-body">
-            <div id="logOutput"></div>
-        </div>
-    </div>
-    
+
     <!-- Результат -->
     <div id="resultSection" class="card d-none">
         <div class="card-header bg-success text-white">
@@ -173,46 +103,40 @@
 <script>
 const state = {
     taskId: null,
-    pollInterval: null,
-    steps: []
+    pollInterval: null
 };
 
 const form = document.getElementById('taskForm');
-const approvalSection = document.getElementById('approvalSection');
 const progressSection = document.getElementById('progressSection');
 const resultSection = document.getElementById('resultSection');
 const errorSection = document.getElementById('errorSection');
-const logCard = document.getElementById('logCard');
 
 // Отправка формы
 form.onsubmit = async (e) => {
     e.preventDefault();
-    
+
     const formData = new FormData(form);
-    
+
     // UI обновления
     document.getElementById('submitText').textContent = 'Запуск...';
     document.getElementById('submitSpinner').classList.remove('d-none');
     form.querySelector('button[type="submit"]').disabled = true;
-    
+
     try {
         const res = await fetch('/start', {
             method: 'POST',
             body: formData
         });
-        
+
         const data = await res.json();
         state.taskId = data.task_id;
-        
-        logEvent('Задача запущена: ' + state.taskId);
-        
+
         // Запускаем опрос статуса
         state.pollInterval = setInterval(pollStatus, 2000);
-        
+
         // Показываем секции
         progressSection.classList.remove('d-none');
-        logCard.classList.remove('d-none');
-        
+
     } catch (err) {
         showError('Ошибка запуска задачи: ' + err.message);
     }
@@ -221,13 +145,13 @@ form.onsubmit = async (e) => {
 // Опрос статуса
 async function pollStatus() {
     if (!state.taskId) return;
-    
+
     try {
         const res = await fetch('/status/' + state.taskId);
         const status = await res.json();
-        
+
         updateStatus(status);
-        
+
     } catch (err) {
         console.error('Ошибка опроса:', err);
     }
@@ -236,117 +160,36 @@ async function pollStatus() {
 // Обновление UI по статусу
 function updateStatus(status) {
     document.getElementById('taskStatus').textContent = status.status;
-    
+
     // Обновляем бейдж статуса
     const badge = document.getElementById('taskStatus');
     badge.className = 'badge status-badge';
-    
+
     if (status.status === 'queued') {
         badge.classList.add('bg-secondary');
-        logEvent('Задача в очереди');
     } else if (status.status === 'processing') {
         badge.classList.add('bg-primary');
-        logEvent('Обработка...');
-        
-        // Обновляем шаги
-        if (status.steps) {
-            updateSteps(status.steps, status.current_step);
-        }
-    } else if (status.status === 'pending_approval') {
-        badge.classList.add('bg-warning text-dark');
-        logEvent('Ожидается проверка кода');
-        showApproval(status);
     } else if (status.status === 'done') {
         badge.classList.add('bg-success');
         clearInterval(state.pollInterval);
         showResult(status);
-        logEvent('Задача выполнена!');
     } else if (status.status === 'error') {
         badge.classList.add('bg-danger');
         clearInterval(state.pollInterval);
         showError(status.error);
-        logEvent('Ошибка: ' + status.error);
-    }
-}
-
-// Обновление шагов
-function updateSteps(steps, currentStep) {
-    state.steps = steps;
-    const container = document.getElementById('stepsContainer');
-    
-    container.innerHTML = steps.map((step, idx) => {
-        let itemClass = 'step-item';
-        if (idx < currentStep) itemClass += ' completed';
-        if (idx === currentStep) itemClass += ' active';
-        
-        return `
-            <div class="${itemClass}">
-                <strong>${step.agent}</strong>: ${step.task}
-                ${idx < currentStep ? '<span class="text-success ms-2">✓</span>' : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-// Показ секции проверки кода
-function showApproval(status) {
-    approvalSection.classList.remove('d-none');
-    
-    document.getElementById('approvalTask').textContent = status.pending_task || '';
-    document.getElementById('approvalCode').textContent = status.pending_code || '';
-    document.getElementById('editedCode').value = status.pending_code || '';
-}
-
-// Одобрение кода
-document.getElementById('approveBtn').onclick = async () => {
-    await submitApproval(true, null);
-};
-
-// Исправить и одобрить
-document.getElementById('editApproveBtn').onclick = async () => {
-    const editedCode = document.getElementById('editedCode').value;
-    await submitApproval(true, editedCode);
-};
-
-// Отклонить код
-document.getElementById('rejectBtn').onclick = async () => {
-    await submitApproval(false, null);
-};
-
-// Отправка решения по проверке
-async function submitApproval(approved, editedCode) {
-    try {
-        const res = await fetch('/approve/' + state.taskId, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                approved: approved,
-                edited_code: editedCode
-            })
-        });
-        
-        if (res.ok) {
-            approvalSection.classList.add('d-none');
-            logEvent('Код ' + (approved ? 'одобрен' : 'отклонён'));
-            
-            // Возобновляем опрос
-            state.pollInterval = setInterval(pollStatus, 2000);
-        }
-    } catch (err) {
-        showError('Ошибка отправки решения: ' + err.message);
     }
 }
 
 // Показ результата
 function showResult(status) {
     resultSection.classList.remove('d-none');
-    
+
     const downloadLink = document.getElementById('downloadLink');
     const viewHtmlLink = document.getElementById('viewHtmlLink');
-    
+
     downloadLink.href = status.result || '/download/' + state.taskId;
     viewHtmlLink.href = status.html_result || '/view_html/' + state.taskId;
-    
+
     // Разблокируем форму
     resetForm();
 }
@@ -363,14 +206,6 @@ function resetForm() {
     document.getElementById('submitText').textContent = 'Запустить генерацию';
     document.getElementById('submitSpinner').classList.add('d-none');
     form.querySelector('button[type="submit"]').disabled = false;
-}
-
-// Логирование событий
-function logEvent(message) {
-    const log = document.getElementById('logOutput');
-    const time = new Date().toLocaleTimeString();
-    log.innerHTML += `[${time}] ${message}\n`;
-    log.scrollTop = log.scrollHeight;
 }
 </script>
 
