@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -27,8 +28,12 @@ class Task:
     """Задача на генерацию отчёта."""
 
     task_id: str
+    upload_dir: str
+    tmp_dir: str
+
     status: str = "queued"
     user_prompt: str = ""
+
     file_paths: list[str] = field(default_factory=list)
     template_path: str | None = None
 
@@ -55,13 +60,22 @@ def log_event(event: str, **data):
     )
 
 
+def create_task_dirs(task_id: str) -> tuple[str, str]:
+    """Создаёт директории для задачи и возвращает пути к ним."""
+    task_upload_dir = os.path.join(UPLOAD_DIR, task_id)
+    task_tmp_dir = os.path.join(TMP_DIR, task_id)
+    os.makedirs(task_upload_dir, exist_ok=True)
+    os.makedirs(task_tmp_dir, exist_ok=True)
+    return task_upload_dir, task_tmp_dir
+
+
 # ---------- BACKGROUND JOB ----------
 
 
-def background_task(task: Task):
+def background_task(task: Task, images: list[tuple[str, str]]):
     """Фоновая задача генерации отчета."""
     try:
-        log_event("task_started", task_id=task.task_id, files=len(task.file_paths))
+        log_event("task_started", task_id=task.task_id, files=len(task.file_paths), images=len(images))
 
         orchestrator = ReportGeneratorLLM()
 
@@ -69,8 +83,9 @@ def background_task(task: Task):
             user_prompt=task.user_prompt,
             file_paths=task.file_paths,
             template_path=task.template_path,
+            images=images,
             task_id=task.task_id,
-            output_dir=TMP_DIR,
+            output_dir=task.tmp_dir,
         )
 
         task.state = state
@@ -96,6 +111,9 @@ def index():
 def start():
     task_id = str(uuid.uuid4())
 
+    # Создаём директории для задачи
+    task_upload_dir, task_tmp_dir = create_task_dirs(task_id)
+
     user_prompt = request.form.get("prompt", "")
     files = request.files.getlist("files")
     template_file = request.files.get("template")
@@ -103,28 +121,45 @@ def start():
     saved_paths = []
     for file in files:
         if file.filename:
-            filename = secure_filename(f"{task_id}_{file.filename}")
-            path = os.path.join(UPLOAD_DIR, filename)
+            filename = secure_filename(file.filename)
+            path = os.path.join(task_upload_dir, filename)
             file.save(path)
             saved_paths.append(path)
 
     template_path = None
     if template_file and template_file.filename:
-        filename = secure_filename(f"{task_id}_template_{template_file.filename}")
-        template_path = os.path.join(UPLOAD_DIR, filename)
+        filename = secure_filename(f"template_{template_file.filename}")
+        template_path = os.path.join(task_upload_dir, filename)
         template_file.save(template_path)
+
+    # Обработка изображений с описаниями
+    images = []
+    idx = 0
+    while True:
+        image_file = request.files.get(f"image_{idx}")
+        description = request.form.get(f"desc_{idx}", "")
+        if not image_file or not image_file.filename:
+            break
+        if description:
+            filename = secure_filename(f"img_{idx}_{image_file.filename}")
+            path = os.path.join(task_upload_dir, filename)
+            image_file.save(path)
+            images.append((path, description))
+        idx += 1
 
     task = Task(
         task_id=task_id,
         user_prompt=user_prompt,
         file_paths=saved_paths,
         template_path=template_path,
+        tmp_dir=task_tmp_dir,
+        upload_dir=task_upload_dir
     )
     tasks[task_id] = task
 
-    log_event("task_queued", task_id=task_id, files=len(saved_paths))
+    log_event("task_queued", task_id=task_id, files=len(saved_paths), images=len(images))
 
-    thread = threading.Thread(target=background_task, args=(task,))
+    thread = threading.Thread(target=background_task, args=(task, images))
     thread.start()
 
     return jsonify({"task_id": task_id})

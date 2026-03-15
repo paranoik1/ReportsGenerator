@@ -63,6 +63,8 @@ def create_code_style(doc: DocumentObject, base_style: "BaseStyle") -> "Paragrap
     code_style.paragraph_format.space_before = Mm(2)
     # отступ снизу в мм
     code_style.paragraph_format.space_after = Mm(2)
+    code_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
 
     return code_style
 

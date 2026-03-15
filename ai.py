@@ -59,19 +59,29 @@ class Document:
 
 
 @dataclass
+class ImageDocument:
+    """Изображение с описанием от пользователя."""
+    filepath: str
+    description: str
+
+
+@dataclass
 class StateAgents:
     task_id: str
     user_prompt: str
 
     report_markdown: str | None = None
+
+    report_markdown_path: str | None = None
     report_html_path: str | None = None
     report_docx_path: str | None = None
 
-    iteration: int = 0
-    max_iterations: int = 10
+    # iteration: int = 0
+    # max_iterations: int = 10
     finished: bool = False
     documents: list[Document] = field(default_factory=list)
     template: Document | None = None
+    images: list[ImageDocument] = field(default_factory=list)
 
 
 def prompt_path_file(prompt_file_name):
@@ -88,6 +98,7 @@ class ReportGeneratorLLM:
         "formatter": Model(
             name="qwen3.5:cloud",
             system_prompt_file=prompt_path_file("formatter.md"),
+            reasoning_effort='high'
         )
     }
 
@@ -112,6 +123,7 @@ class ReportGeneratorLLM:
         user_prompt: str,
         file_paths: list[str],
         template_path: str | None = None,
+        images: list[tuple[str, str]] | None = None,
         task_id: str = "default",
         output_dir: str = "tmp",
     ) -> StateAgents:
@@ -122,6 +134,7 @@ class ReportGeneratorLLM:
             user_prompt: Задача от пользователя
             file_paths: Пути к файлам с документами
             template_path: Путь к файлу с примером отчета (опционально)
+            images: Список кортежей (путь_к_файлу, описание)
             task_id: Идентификатор задачи
             output_dir: Директория для сохранения результатов
 
@@ -132,12 +145,14 @@ class ReportGeneratorLLM:
 
         documents = [Document(filepath=path) for path in file_paths]
         template = Document(filepath=template_path) if template_path else None
+        image_docs = [ImageDocument(filepath=path, description=desc) for path, desc in (images or [])]
 
         state = StateAgents(
             task_id=task_id,
             user_prompt=user_prompt,
             documents=documents,
             template=template,
+            images=image_docs,
         )
 
         state = self.run(state)
@@ -145,13 +160,22 @@ class ReportGeneratorLLM:
         if not state.report_markdown:
             raise ValueError("Отчет не был сгенерирован")
 
+        markdown_path = self._save_markdown(state.report_markdown, task_id, output_dir)
         html_path = self._save_html(state.report_markdown, task_id, output_dir)
         docx_path = self._save_docx(html_path, task_id, output_dir)
 
+        state.report_markdown_path = markdown_path
         state.report_html_path = html_path
         state.report_docx_path = docx_path
 
         return state
+    
+    def _save_markdown(self, markdown_content: str, task_id: str, output_dir: str) -> str:
+        md_path = os.path.join(output_dir, f"{task_id}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+
+        return md_path
 
     def _save_html(self, markdown_content: str, task_id: str, output_dir: str) -> str:
         """Сохраняет отчет в HTML формате."""
@@ -192,25 +216,26 @@ class ReportGeneratorLLM:
             doc.content for doc in state.documents
         )
 
+        images_context = ""
+        if state.images:
+            images_context = "\n\n".join(
+                f"Путь к файлу: {img.filepath}\nОписание: {img.description}\n------\n"
+                for img in state.images
+            )
+
         template_context = ""
         if state.template:
-            template_context = f"\n\nПример отчета (ориентируйся на эту структуру):\n{state.template.content}"
+            template_context = state.template.content
 
         full_system_prompt = model.system_prompt.format(
             docs_context=docs_context or "Нет документов",
-            codes_context="",
-            diagrams_context="",
-            template_context=template_context,
+            template_context=template_context or 'Нет примера отчета',
+            images_context=images_context or 'Пользователь не предоставил изображений',
         )
 
         user_message = {
             "role": "user",
-            "content": f"""Задача пользователя:
-{state.user_prompt}
-
-Сформируй структурированный отчёт по выполненной работе.
-{template_context}
-"""
+            "content": state.user_prompt
         }
         messages = [{"role": "system", "content": full_system_prompt}, user_message]
 

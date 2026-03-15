@@ -1,3 +1,4 @@
+import os
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.document import Document as DocumentObject
@@ -6,7 +7,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.table import _Cell
 
-from utils.docx_styles import setup_document_styles
+try:
+    from utils.docx_styles import setup_document_styles
+except ImportError:
+    from docx_styles import setup_document_styles
 
 
 def set_cell_border(cell: _Cell, **kwargs):
@@ -106,12 +110,33 @@ class HTMLToDocx:
         self.render_inline(tag, p)
 
     def handle_image(self, tag: Tag):
+        """
+        Обрабатывает изображения, включая base64 и относительные пути.
+        """
         src = tag.get("src")
-        if src:
-            try:
+        alt = tag.get("alt", "Изображение")
+        
+        if not (src and isinstance(src, str)):
+            return
+
+        # Изображение по пути
+        try:
+            # Пробуем найти изображение относительно HTML файла или абсолютного пути
+            if not os.path.isabs(src):
+                # Если путь относительный, ищем в той же директории, где HTML
+                if hasattr(self, 'html_dir'):
+                    src = os.path.join(self.html_dir, src)
+            
+            if os.path.exists(src):
                 self.doc.add_picture(src)  # type: ignore
-            except FileNotFoundError:
-                print("Файл изображения не найден:", src)
+            else:
+                # Добавляем заглушку с текстом
+                p = self.doc.add_paragraph()
+                run = p.add_run(f"[Изображение: {alt}]")
+                run.italic = True
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception as e:
+            print(f"Ошибка добавления изображения {src}: {e}")
 
     def handle_code_block(self, tag: Tag):
         """
@@ -207,6 +232,9 @@ class HTMLToDocx:
             p = self.doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             self.render_inline(tag, p)
+
+        elif name == 'code':
+            self.handle_code_block(tag)
 
         else:
             self.render_inline(tag, paragraph)
