@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from ai import ReportGeneratorLLM, StateAgents
+from ai import ReportGenerator, StateAgents
 
 UPLOAD_DIR = "uploads"
 TMP_DIR = "tmp"
@@ -77,7 +77,7 @@ def background_task(task: Task, images: list[tuple[str, str]]):
     try:
         log_event("task_started", task_id=task.task_id, files=len(task.file_paths), images=len(images))
 
-        orchestrator = ReportGeneratorLLM()
+        orchestrator = ReportGenerator()
 
         state = orchestrator.generate_report(
             user_prompt=task.user_prompt,
