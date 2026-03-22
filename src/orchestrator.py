@@ -1,16 +1,22 @@
-import json
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Type, TypeVar
+from typing import Any, Type, TypeVar
 
+import pydantic
 from openai import OpenAI
 from openai.types import ReasoningEffort
+from openai.types.chat.chat_completion import ChatCompletion
 
 from models import Document, FilePath, StateAgents
-from utils.data_block_registry import BaseModel, DataBlocksRegistry, DataBlockWithId
+from utils.data_block_registry import BaseModel, DataBlockWithId
 from utils.prompt_manager import PromptManager
 
 T = TypeVar("T", bound=BaseModel)
+
+
+logger = logging.getLogger(__name__)
 
 
 class ListDataBlocks(BaseModel):
@@ -42,14 +48,17 @@ class Orchestrator:
         "document_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
             system_prompt_template="document_analyst.j2",
+            temperature=0,
         ),
         "template_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
             system_prompt_template="template_analyst.j2",
+            temperature=0,
         ),
         "user_prompt_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
             system_prompt_template="user_prompt_analyst.j2",
+            temperature=0,
         ),
         "planner": AiModel(
             name="qwen3.5:cloud",
@@ -70,6 +79,23 @@ class Orchestrator:
     ) -> None:
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.output_dir = Path(output_dir)
+
+    @staticmethod
+    def clean_json_from_markdown(text: str) -> str:
+        """Удаляет любые markdown-обёртки вокруг JSON"""
+        text = text.strip()
+
+        # Удаляем ``` вокруг json
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\n?```$", "", text, flags=re.IGNORECASE)
+
+        # Найти первый { и последний } (если JSON внутри текста)
+        if not text.startswith("{"):
+            match = re.search(r"\{[\s\S]*\}", text)
+            if match:
+                text = match.group(0)
+
+        return text.strip()
 
     def _documents_summirize(
         self, docs: list[Document], blocks_ids_context: str = ""
@@ -191,41 +217,36 @@ class Orchestrator:
         self,
         model: AiModel,
         messages: list[dict],
-        method_name: Literal["parse", "create"],
-        response_format: Type[BaseModel] | None = None,
+        is_json: bool = False,
         **kwargs,
-    ):
+    ) -> ChatCompletion:
         """
         Приватный метод для общей логики запроса
         """
-        openai_method = getattr(self.client.responses, method_name)
+        if is_json:
+            kwargs["response_format"] = {"type": "json_object"}
 
-        # Формируем аргументы
-        call_kwargs = {
-            "model": model.name,
-            "input": messages,
-            "reasoning": {"effort": model.reasoning_effort},
-            "temperature": model.temperature,
+        response = self.client.chat.completions.create(
+            model=model.name,
+            messages=messages,  # type: ignore
+            reasoning_effort=model.reasoning_effort,
+            temperature=model.temperature,
             **kwargs,
-        }
+        )
 
-        # Если это parse, нужно передать формат (зависит от версии API, но логически так)
-        if method_name == "parse" and response_format:
-            call_kwargs["text_format"] = (
-                response_format  # или другой параметр в зависимости от API
-            )
-
-        return openai_method(**call_kwargs)
+        return response
 
     def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str:
         """
         Метод для обычного текста
         """
-        response = self._execute_request(
-            model=model, messages=messages, method_name="create", **kwargs
-        )
+        response = self._execute_request(model=model, messages=messages, **kwargs)
 
-        return response.output
+        answer = response.choices[0].message.content
+        if answer is None:
+            raise ValueError("Ответ пустой")
+
+        return answer
 
     def run_agent_structured(
         self, model: AiModel, messages: list[dict], response_model: Type[T], **kwargs
@@ -236,15 +257,29 @@ class Orchestrator:
         response = self._execute_request(
             model=model,
             messages=messages,
-            method_name="parse",
-            response_format=response_model,
+            is_json=True,
             **kwargs,
         )
 
-        if response.output_parsed is None:
-            raise ValueError("Failed to parse structured output")
+        raw_answer = response.choices[0].message.content
+        if raw_answer is None:
+            raise ValueError("Ответ пустой")
 
-        return response.output_parsed
+        raw_answer = raw_answer.strip()
+
+        try:
+            return response_model.model_validate_json(raw_answer)
+        except pydantic.ValidationError:
+            cleaned_answer = Orchestrator.clean_json_from_markdown(raw_answer)
+            try:
+                return response_model.model_validate_json(cleaned_answer)
+            except pydantic.ValidationError:
+                logger.critical(
+                    "Не валидный JSON:\n %s\nТекст после очистки: \n%s",
+                    raw_answer,
+                    cleaned_answer,
+                )
+                raise ValueError("LLM вернула невалидный JSON")
 
     def planner_agent(self, state: StateAgents):
         model = self.MODELS_ROLES["planner"]
