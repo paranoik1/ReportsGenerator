@@ -1,13 +1,13 @@
-import os
 import json
-import markdown
+import os
+from dataclasses import asdict
 from pathlib import Path
-from models import StateAgents, ImageDocument, Document
+
+import markdown
+
+from models import Document, ImageDocument, StateAgents
 from orchestrator import LLMPipeline
 from utils.md2docx import html_to_docx
-from dataclasses import asdict
-
-
 
 
 class ReportGenerator:
@@ -38,7 +38,10 @@ class ReportGenerator:
 
         documents = [Document(filepath=path) for path in file_paths]
         template = Document(filepath=template_path) if template_path else None
-        image_docs = [ImageDocument(filepath=path, description=desc) for path, desc in (images or [])]
+        image_docs = [
+            ImageDocument(filepath=path, description=desc)
+            for path, desc in (images or [])
+        ]
 
         state = StateAgents(
             task_id=task_id,
@@ -63,8 +66,10 @@ class ReportGenerator:
         state.report_docx_path = docx_path
 
         return state
-    
-    def _save_markdown(self, markdown_content: str, task_id: str, output_dir: str) -> str:
+
+    def _save_markdown(
+        self, markdown_content: str, task_id: str, output_dir: str
+    ) -> str:
         md_path = os.path.join(output_dir, f"{task_id}.md")
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(markdown_content)
@@ -90,19 +95,19 @@ class ReportGenerator:
         return docx_path
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from pathlib import Path
     from subprocess import Popen
 
     llm_pipeline = LLMPipeline()
     task_id = "18ebf7db-284a-4f2a-b9a3-aed1ff5f0c10"
 
-    with open('prompts/users/praktika11.md') as fp:
+    with open("prompts/users/praktika11.md") as fp:
         user_prompt = fp.read()
 
     docs = [Document(f"uploads/{task_id}/Pr11_.docx")]
-    task_dir = Path('uploads') / task_id
-    image_docs_json_filepath = task_dir / 'image_docs.json'
+    task_dir = Path("uploads") / task_id
+    image_docs_json_filepath = task_dir / "image_docs.json"
     image_docs = []
 
     if image_docs_json_filepath.exists():
@@ -113,18 +118,18 @@ if __name__ == '__main__':
     else:
         image_docs_dict = []
 
-        for image in task_dir.glob('*.png'):
+        for image in task_dir.glob("*.png"):
             Popen(["viewnior", image])
             description = input(str(image) + ": ")
             image_doc = ImageDocument(task_dir / image, description=description)
             image_docs.append(image_doc)
             image_docs_dict.append(asdict(image_doc))
-            
+
         with open(image_docs_json_filepath, "w") as fp:
             json.dump(image_docs_dict, fp, ensure_ascii=False, indent=4)
 
     state = StateAgents(
-        task_id='test',
+        task_id="test",
         user_prompt=user_prompt,
         documents=docs,
         template=Document(f"uploads/{task_id}/template_10.docx"),
@@ -132,4 +137,3 @@ if __name__ == '__main__':
     )
 
     llm_pipeline.fill_data_blocks_registry(state)
-    

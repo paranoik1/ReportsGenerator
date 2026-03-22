@@ -1,8 +1,10 @@
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from pypandoc import convert_file
 from pypdf import PdfReader
-from dataclasses import dataclass, field
+
 from utils.data_block_registry import DataBlocksRegistry
-from pathlib import Path
 
 FilePath = str | Path
 
@@ -39,9 +41,9 @@ class Document:
 @dataclass
 class ImageDocument:
     """Изображение с описанием от пользователя."""
+
     filepath: FilePath
     description: str
-
 
 
 @dataclass
@@ -63,4 +65,3 @@ class StateAgents:
     documents: list[Document] = field(default_factory=list)
     template: Document | None = None
     images: list[ImageDocument] = field(default_factory=list)
-

@@ -1,4 +1,5 @@
 import os
+
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.document import Document as DocumentObject
@@ -115,7 +116,7 @@ class HTMLToDocx:
         """
         src = tag.get("src")
         alt = tag.get("alt", "Изображение")
-        
+
         if not (src and isinstance(src, str)):
             return
 
@@ -124,9 +125,9 @@ class HTMLToDocx:
             # Пробуем найти изображение относительно HTML файла или абсолютного пути
             if not os.path.isabs(src):
                 # Если путь относительный, ищем в той же директории, где HTML
-                if hasattr(self, 'html_dir'):
+                if hasattr(self, "html_dir"):
                     src = os.path.join(self.html_dir, src)
-            
+
             if os.path.exists(src):
                 self.doc.add_picture(src)  # type: ignore
             else:
@@ -233,7 +234,7 @@ class HTMLToDocx:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             self.render_inline(tag, p)
 
-        elif name == 'code':
+        elif name == "code":
             self.handle_code_block(tag)
 
         else:

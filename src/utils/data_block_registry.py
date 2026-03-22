@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import Any
+
+from pydantic import BaseModel
 
 IdBlock = str
 
@@ -14,18 +15,16 @@ class DataBlockWithId(DataBlock):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]):
-        id = data.get('id')
-        description = data.get('description')
-        content = data.get('content')
+        id = data.get("id")
+        description = data.get("description")
+        content = data.get("content")
 
         if not (id and description and content):
-            raise ValueError(f"Недостаточно данных для создания блоков, полученные данные: {data=}")
+            raise ValueError(
+                f"Недостаточно данных для создания блоков, полученные данные: {data=}"
+            )
 
-        return cls(
-            id=id,
-            description=description,
-            content=content
-        )
+        return cls(id=id, description=description, content=content)
 
 
 class DataBlocksRegistry:
@@ -39,24 +38,23 @@ class DataBlocksRegistry:
         self.blocks[id] = block
 
     def add_block_from_dto(self, block: DataBlockWithId):
-        self.blocks[block.id] = DataBlock(description=block.description, content=block.content)
+        self.blocks[block.id] = DataBlock(
+            description=block.description, content=block.content
+        )
 
     def read_block(self, id: IdBlock) -> str:
         try:
             return self.blocks[id].content
         except KeyError:
-            raise ValueError(f'Блок с {id=} не был найден')
-        
+            raise ValueError(f"Блок с {id=} не был найден")
+
     def get_blocks_context(self):
         return "\n".join(
-            [
-                f'{id} - {block.description}' 
-                for id, block in self.blocks.items()
-            ]
+            [f"{id} - {block.description}" for id, block in self.blocks.items()]
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     dbr = DataBlocksRegistry()
     # print("Добавление блоков данных в registry")
     # dbr.add_block_from_params('content', 'Контент документа', ';....;')
