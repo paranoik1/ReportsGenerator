@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 import threading
 import time
 import uuid
@@ -10,7 +9,7 @@ from dataclasses import dataclass, field
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from ai import ReportGenerator, StateAgents
+from reports_generator import ReportGenerator, StateAgents
 
 UPLOAD_DIR = "uploads"
 TMP_DIR = "tmp"

@@ -1,7 +1,6 @@
 context-playwright
 tmp
 uploads
-.vscode
 .venv
 .mypy_cache
 __pycache__
