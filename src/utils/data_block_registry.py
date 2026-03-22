@@ -1,6 +1,11 @@
-from typing import Any
+import json
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from models import FilePath
 
 IdBlock = str
 
@@ -29,39 +34,46 @@ class DataBlockWithId(DataBlock):
 
 class DataBlocksRegistry:
     def __init__(self) -> None:
-        self.blocks: dict[IdBlock, DataBlock] = {}
+        self._blocks: dict[IdBlock, DataBlock] = {}
 
     def add_block_from_params(self, id: IdBlock, description: str, content: str):
-        self.blocks[id] = DataBlock(description=description, content=content)
+        self._blocks[id] = DataBlock(description=description, content=content)
 
     def add_block(self, id: IdBlock, block: DataBlock):
-        self.blocks[id] = block
+        self._blocks[id] = block
 
     def add_block_from_dto(self, block: DataBlockWithId):
-        self.blocks[block.id] = DataBlock(
+        self._blocks[block.id] = DataBlock(
             description=block.description, content=block.content
         )
 
     def read_block(self, id: IdBlock) -> str:
         try:
-            return self.blocks[id].content
+            return self._blocks[id].content
         except KeyError:
             raise ValueError(f"Блок с {id=} не был найден")
 
-    def get_blocks_context(self):
+    def get_blocks_context(self) -> str:
         return "\n".join(
-            [f"{id} - {block.description}" for id, block in self.blocks.items()]
+            [f"{id} - {block.description}" for id, block in self._blocks.items()]
         )
+
+    def get_blocks(self) -> dict[IdBlock, DataBlock]:
+        """
+        Возвращает независимый словарь блоков (копию - deepcopy)
+        """
+        return deepcopy(self._blocks)
+
+    def save(self, filepath: "FilePath"):
+        blocks = {id: block.model_dump() for id, block in self._blocks.items()}
+        with open(filepath, "w") as fp:
+            json.dump(blocks, fp, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
     dbr = DataBlocksRegistry()
-    # print("Добавление блоков данных в registry")
-    # dbr.add_block_from_params('content', 'Контент документа', ';....;')
-    # dbr.add_block('content_2', DataBlock('2 content doc', ';;.....'))
-    # dbr.add_block_from_dto(DataBlockWithId('description', 'Контент документа', 'content_id'))
-
-    # print("Вывод контекста с блоков")
-    # print(dbr.get_blocks_context())
-    # print("Чтение блока 'content'")
-    # print(dbr.read_block('content'))
+    dbr.add_block("id", DataBlock(description="Описание", content="Content"))
+    blocks = dbr.get_blocks()
+    blocks["id"].content = ""
+    print(dbr.get_blocks())
+    print(blocks)

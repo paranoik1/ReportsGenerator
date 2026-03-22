@@ -1,8 +1,7 @@
-context-playwright
 tmp
 uploads
 .venv
 .mypy_cache
 __pycache__
 .env
-output.txt
+*.ipynb

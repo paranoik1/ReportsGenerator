@@ -1,15 +1,14 @@
 import json
 from dataclasses import dataclass
-from functools import cached_property
-from os.path import join as path_join
 from pathlib import Path
-from typing import Literal, Type, TypeVar
+from typing import Any, Literal, Type, TypeVar
 
 from openai import OpenAI
 from openai.types import ReasoningEffort
 
-from models import Document, StateAgents
+from models import Document, FilePath, StateAgents
 from utils.data_block_registry import BaseModel, DataBlocksRegistry, DataBlockWithId
+from utils.prompt_manager import PromptManager
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -22,53 +21,52 @@ class ListDataBlocks(BaseModel):
     blocks: list[DataBlockWithId]
 
 
+# Глобальный менеджер промптов
+_prompt_manager = PromptManager()
+
+
 @dataclass
 class AiModel:
     name: str
-    system_prompt_file: str
+    system_prompt_template: str
     reasoning_effort: ReasoningEffort = "medium"
     temperature: float | None = None
 
-    @cached_property
-    def system_prompt(self):
-        with open(self.system_prompt_file) as fp:
-            return fp.read()
+    def render_system_prompt(self, **context: Any) -> str:
+        """Рендерит системный промпт с переданными переменными."""
+        return _prompt_manager.render(self.system_prompt_template, **context)
 
 
-def prompt_path_file(prompt_file_name):
-    return path_join("prompts", prompt_file_name)
-
-
-class LLMPipeline:
+class Orchestrator:
     MODELS_ROLES = {
         "document_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
-            system_prompt_file=prompt_path_file("document_analyst.md"),
+            system_prompt_template="document_analyst.j2",
         ),
         "template_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
-            system_prompt_file=prompt_path_file("template_analyst.md"),
+            system_prompt_template="template_analyst.j2",
         ),
         "user_prompt_analyst": AiModel(
             name="kimi-k2-thinking:cloud",
-            system_prompt_file=prompt_path_file("user_prompt_analyst.md"),
+            system_prompt_template="user_prompt_analyst.j2",
         ),
         "planner": AiModel(
             name="qwen3.5:cloud",
-            system_prompt_file=prompt_path_file("planner.md"),
+            system_prompt_template="planner.j2",
             reasoning_effort="high",
         ),
         "formatter": AiModel(
             name="qwen3.5:cloud",
-            system_prompt_file=prompt_path_file("formatter.md"),
+            system_prompt_template="formatter.j2",
         ),
     }
 
     def __init__(
         self,
+        output_dir: FilePath,
         base_url: str = "http://127.0.0.1:11434/v1",
         api_key: str = "ollama",
-        output_dir: str = "/tmp",
     ) -> None:
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.output_dir = Path(output_dir)
@@ -78,7 +76,7 @@ class LLMPipeline:
     ) -> list[DataBlockWithId]:
         model = self.MODELS_ROLES["document_analyst"]
 
-        full_system_prompt = model.system_prompt.format(
+        full_system_prompt = model.render_system_prompt(
             task="Создать план по написанию отчета по практической работе",
             blocks_ids_context=blocks_ids_context,
         )
@@ -98,7 +96,7 @@ class LLMPipeline:
     def _template_specs_extract(self, template: Document) -> DataBlockWithId:
         model = self.MODELS_ROLES["template_analyst"]
 
-        full_system_prompt = model.system_prompt.format(
+        full_system_prompt = model.render_system_prompt(
             task="Создать план по написанию отчета по практической работе"
         )
         messages = [
@@ -115,11 +113,11 @@ class LLMPipeline:
         return block
 
     def _user_prompt_data_extract(
-        self, user_prompt: str, blocks_ids_context: str = ""
+        self, user_prompt: str, blocks_ids_context: str
     ) -> list[DataBlockWithId]:
         model = self.MODELS_ROLES["user_prompt_analyst"]
 
-        full_system_prompt = model.system_prompt.format(
+        full_system_prompt = model.render_system_prompt(
             task="Создать план по написанию отчета по практической работе",
             blocks_ids_context=blocks_ids_context,
         )
@@ -132,16 +130,6 @@ class LLMPipeline:
 
         return list_blocks.blocks
 
-    def _save_data_blocks(self, data_blocks_registry: DataBlocksRegistry):
-        blocks = [
-            DataBlockWithId(
-                id=id, description=block.description, content=block.content
-            ).model_dump()
-            for id, block in data_blocks_registry.blocks.items()
-        ]
-        with open(self.output_dir / "data_blocks.json", "w") as fp:
-            json.dump(blocks, fp, ensure_ascii=False, indent=4)
-
     def fill_data_blocks_registry(self, state: StateAgents):
         dbr = state.data_blocks_registry
 
@@ -149,20 +137,22 @@ class LLMPipeline:
             template_data_block = self._template_specs_extract(state.template)
             dbr.add_block_from_dto(template_data_block)
 
+        blocks_ids = dbr.get_blocks().keys()
         docs_summirized_blocks = self._documents_summirize(
-            state.documents, dbr.get_blocks_context()
+            state.documents, ", ".join(blocks_ids)
         )
         for block in docs_summirized_blocks:
             dbr.add_block_from_dto(block)
 
+        blocks_ids = dbr.get_blocks().keys()
         user_data_blocks = self._user_prompt_data_extract(
-            state.user_prompt, dbr.get_blocks_context()
+            state.user_prompt, ", ".join(blocks_ids)
         )
 
         for block in user_data_blocks:
             dbr.add_block_from_dto(block)
 
-        self._save_data_blocks(dbr)
+        dbr.save(self.output_dir / "data_blocks.json")
 
     def formatter_agent(self, state: StateAgents) -> str:
         """
@@ -183,7 +173,7 @@ class LLMPipeline:
         if state.template:
             template_context = state.template.content
 
-        full_system_prompt = model.system_prompt.format(
+        full_system_prompt = model.render_system_prompt(
             docs_context=docs_context or "Нет документов",
             template_context=template_context or "Нет примера отчета",
             images_context=images_context or "Пользователь не предоставил изображений",

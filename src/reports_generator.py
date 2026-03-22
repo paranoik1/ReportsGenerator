@@ -6,7 +6,7 @@ from pathlib import Path
 import markdown
 
 from models import Document, ImageDocument, StateAgents
-from orchestrator import LLMPipeline
+from orchestrator import Orchestrator
 from utils.md2docx import html_to_docx
 
 
@@ -51,7 +51,7 @@ class ReportGenerator:
             images=image_docs,
         )
 
-        llm_pipeline = LLMPipeline(output_dir)
+        llm_pipeline = Orchestrator(output_dir)
         llm_pipeline.run(state)
 
         if not state.report_markdown:
@@ -93,47 +93,3 @@ class ReportGenerator:
         docx_path = os.path.join(output_dir, f"{task_id}.docx")
         html_to_docx(html_path, docx_path)
         return docx_path
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-    from subprocess import Popen
-
-    llm_pipeline = LLMPipeline()
-    task_id = "18ebf7db-284a-4f2a-b9a3-aed1ff5f0c10"
-
-    with open("prompts/users/praktika11.md") as fp:
-        user_prompt = fp.read()
-
-    docs = [Document(f"uploads/{task_id}/Pr11_.docx")]
-    task_dir = Path("uploads") / task_id
-    image_docs_json_filepath = task_dir / "image_docs.json"
-    image_docs = []
-
-    if image_docs_json_filepath.exists():
-        with open(image_docs_json_filepath) as fp:
-            image_docs_dict = json.load(fp)
-            for image_doc in image_docs_dict:
-                image_docs.append(ImageDocument(**image_doc))
-    else:
-        image_docs_dict = []
-
-        for image in task_dir.glob("*.png"):
-            Popen(["viewnior", image])
-            description = input(str(image) + ": ")
-            image_doc = ImageDocument(task_dir / image, description=description)
-            image_docs.append(image_doc)
-            image_docs_dict.append(asdict(image_doc))
-
-        with open(image_docs_json_filepath, "w") as fp:
-            json.dump(image_docs_dict, fp, ensure_ascii=False, indent=4)
-
-    state = StateAgents(
-        task_id="test",
-        user_prompt=user_prompt,
-        documents=docs,
-        template=Document(f"uploads/{task_id}/template_10.docx"),
-        images=image_docs,
-    )
-
-    llm_pipeline.fill_data_blocks_registry(state)
