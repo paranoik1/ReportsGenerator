@@ -1,10 +1,10 @@
-import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type, TypeVar
 
 import pydantic
+import structlog
 from openai import OpenAI
 from openai.types import ReasoningEffort
 from openai.types.chat.chat_completion import ChatCompletion
@@ -16,7 +16,7 @@ from utils.prompt_manager import PromptManager
 T = TypeVar("T", bound=BaseModel)
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class ListDataBlocks(BaseModel):
@@ -74,11 +74,15 @@ class Orchestrator:
     def __init__(
         self,
         output_dir: FilePath,
+        task_id: str,
         base_url: str = "http://127.0.0.1:11434/v1",
         api_key: str = "ollama",
     ) -> None:
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.output_dir = Path(output_dir)
+
+        self.task_id = task_id
+        self.log = logger.bind(task_id=self.task_id)
 
     @staticmethod
     def clean_json_from_markdown(text: str) -> str:
@@ -114,9 +118,15 @@ class Orchestrator:
                 system_message,
                 {"role": "user", "content": f"Документ:\n{doc.content}"},
             ]
+            self.log.debug(
+                "calling_document_analyst",
+                doc_path=doc.filepath,
+                prompt_len=len(full_system_prompt),
+            )
             list_blocks = self.run_agent_structured(model, messages, ListDataBlocks)
             blocks += list_blocks.blocks
 
+        self.log.info("documents_summarized", blocks_count=len(blocks))
         return blocks
 
     def _template_specs_extract(self, template: Document) -> DataBlockWithId:
@@ -130,12 +140,17 @@ class Orchestrator:
             {"role": "user", "content": f"Документ:\n{template.content}"},
         ]
 
+        self.log.debug(
+            "calling_template_analyst",
+            template_path=template.filepath,
+            prompt_len=len(full_system_prompt),
+        )
         block = self.run_agent_structured(
             model, messages, response_model=DataBlockWithId
         )
-        # block_dict = json.loads(block_json)
         block.id = "template_specs"
 
+        self.log.info("template_specs_extracted")
         return block
 
     def _user_prompt_data_extract(
@@ -152,11 +167,18 @@ class Orchestrator:
             {"role": "user", "content": user_prompt},
         ]
 
+        self.log.debug(
+            "calling_user_prompt_analyst",
+            prompt_len=len(full_system_prompt),
+            user_prompt_len=len(user_prompt),
+        )
         list_blocks = self.run_agent_structured(model, messages, ListDataBlocks)
 
+        self.log.info("user_prompt_analyzed", blocks_count=len(list_blocks.blocks))
         return list_blocks.blocks
 
     def fill_data_blocks_registry(self, state: StateAgents):
+        self.log.info("fill_data_blocks_registry_start")
         dbr = state.data_blocks_registry
 
         if state.template:
@@ -178,7 +200,13 @@ class Orchestrator:
         for block in user_data_blocks:
             dbr.add_block_from_dto(block)
 
-        dbr.save(self.output_dir / "data_blocks.json")
+        data_blocks_path = self.output_dir / "data_blocks.json"
+        dbr.save(data_blocks_path)
+        self.log.info(
+            "data_blocks_saved",
+            blocks_count=len(dbr.get_blocks()),
+            path=str(data_blocks_path),
+        )
 
     def formatter_agent(self, state: StateAgents) -> str:
         """
@@ -270,14 +298,14 @@ class Orchestrator:
         try:
             return response_model.model_validate_json(raw_answer)
         except pydantic.ValidationError:
-            cleaned_answer = Orchestrator.clean_json_from_markdown(raw_answer)
+            cleaned_answer = self.clean_json_from_markdown(raw_answer)
             try:
                 return response_model.model_validate_json(cleaned_answer)
             except pydantic.ValidationError:
-                logger.critical(
-                    "Не валидный JSON:\n %s\nТекст после очистки: \n%s",
-                    raw_answer,
-                    cleaned_answer,
+                self.log.critical(
+                    "invalid_json",
+                    raw_answer=raw_answer[:500],
+                    cleaned_answer=cleaned_answer[:500],
                 )
                 raise ValueError("LLM вернула невалидный JSON")
 
@@ -290,8 +318,13 @@ class Orchestrator:
 
         Возвращает состояние с результатами работы всех агентов.
         """
+        self.log.info("orchestrator_run_start")
+
         self.fill_data_blocks_registry(state)
         self.formatter_agent(state)
+
         state.finished = True
+
+        self.log.info("orchestrator_run_done")
 
         return state

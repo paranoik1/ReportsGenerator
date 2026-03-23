@@ -1,24 +1,27 @@
-import json
-import os
-from dataclasses import asdict
 from pathlib import Path
 
 import markdown
+import structlog
 
 from models import Document, ImageDocument, StateAgents
 from orchestrator import Orchestrator
 from utils.md2docx import html_to_docx
 
+logger = structlog.get_logger(__name__)
+
 
 class ReportGenerator:
+    def __init__(self, task_id: str, output_dir: str) -> None:
+        self.log = logger.bind(task_id=task_id)
+        self.task_id = task_id
+        self.output_dir = Path(output_dir)
+
     def generate_report(
         self,
         user_prompt: str,
         file_paths: list[str],
         template_path: str | None = None,
         images: list[tuple[str, str]] | None = None,
-        task_id: str = "default",
-        output_dir: str = "tmp",
     ) -> StateAgents:
         """
         Генерирует отчет на основе предоставленных файлов.
@@ -34,7 +37,13 @@ class ReportGenerator:
         Returns:
             StateAgents с результатами генерации (report_markdown, report_html_path, report_docx_path)
         """
-        os.makedirs(output_dir, exist_ok=True)
+        self.log.debug(
+            "start_generate_report",
+            user_prompt_len=len(user_prompt),
+            output_dir=str(self.output_dir),
+        )
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         documents = [Document(filepath=path) for path in file_paths]
         template = Document(filepath=template_path) if template_path else None
@@ -44,52 +53,58 @@ class ReportGenerator:
         ]
 
         state = StateAgents(
-            task_id=task_id,
+            task_id=self.task_id,
             user_prompt=user_prompt,
             documents=documents,
             template=template,
             images=image_docs,
         )
 
-        llm_pipeline = Orchestrator(output_dir)
+        llm_pipeline = Orchestrator(self.output_dir, task_id=self.task_id)
         llm_pipeline.run(state)
 
         if not state.report_markdown:
+            self.log.error("report_markdown is None")
             raise ValueError("Отчет не был сгенерирован")
 
-        markdown_path = self._save_markdown(state.report_markdown, task_id, output_dir)
-        html_path = self._save_html(state.report_markdown, task_id, output_dir)
-        docx_path = self._save_docx(html_path, task_id, output_dir)
+        markdown_path = self._save_markdown(state.report_markdown)
+        html_path = self._save_html(state.report_markdown)
+        docx_path = self._save_docx(html_path)
 
-        state.report_markdown_path = markdown_path
-        state.report_html_path = html_path
-        state.report_docx_path = docx_path
+        state.report_markdown_path = str(markdown_path)
+        state.report_html_path = str(html_path)
+        state.report_docx_path = str(docx_path)
 
         return state
 
-    def _save_markdown(
-        self, markdown_content: str, task_id: str, output_dir: str
-    ) -> str:
-        md_path = os.path.join(output_dir, f"{task_id}.md")
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
+    def _save_markdown(self, markdown_content: str) -> Path:
+        md_path = self.output_dir / f"{self.task_id}.md"
+        md_path.write_text(markdown_content, encoding="utf-8")
+
+        self.log.debug(
+            "saved_markdown", path=str(md_path), content_len=len(markdown_content)
+        )
 
         return md_path
 
-    def _save_html(self, markdown_content: str, task_id: str, output_dir: str) -> str:
+    def _save_html(self, markdown_content: str) -> Path:
         """Сохраняет отчет в HTML формате."""
         html_content = markdown.markdown(
             markdown_content, extensions=["extra", "sane_lists", "nl2br"]
         )
 
-        html_path = os.path.join(output_dir, f"{task_id}.html")
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        html_path = self.output_dir / f"{self.task_id}.html"
+        html_path.write_text(html_content, encoding="utf-8")
+
+        self.log.debug("saved_html", path=str(html_path), content_len=len(html_content))
 
         return html_path
 
-    def _save_docx(self, html_path: str, task_id: str, output_dir: str) -> str:
+    def _save_docx(self, html_path: Path) -> Path:
         """Сохраняет отчет в DOCX формате."""
-        docx_path = os.path.join(output_dir, f"{task_id}.docx")
-        html_to_docx(html_path, docx_path)
+        docx_path = self.output_dir / f"{self.task_id}.docx"
+        html_to_docx(str(html_path), str(docx_path))
+
+        self.log.debug("saved_docx", path=str(docx_path))
+
         return docx_path

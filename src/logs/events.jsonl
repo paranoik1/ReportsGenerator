@@ -1,5 +1,2 @@
-{"event": "task_queued", "time": 1774180747.5154674, "task_id": "e782b233-b0c1-430b-ae13-a267097f4883", "files": 0, "images": 0}
-{"event": "task_started", "time": 1774180747.5191703, "task_id": "e782b233-b0c1-430b-ae13-a267097f4883", "files": 0, "images": 0}
-{"event": "task_failed", "time": 1774180802.8882725, "task_id": "e782b233-b0c1-430b-ae13-a267097f4883", "error": "[Errno 2] No such file or directory: 'prompts/document_analyst.md'"}
-{"event": "task_queued", "time": 1774181305.9166536, "task_id": "87704616-950f-4b21-b666-c07d9788948c", "files": 0, "images": 0}
-{"event": "task_started", "time": 1774181305.9177964, "task_id": "87704616-950f-4b21-b666-c07d9788948c", "files": 0, "images": 0}
+{"task_id": "f3ac85a7-74f9-42cd-901a-2acc8135d3fb", "files_count": 0, "images_count": 0, "event": "task_queued", "level": "info", "logger": "ai_service", "timestamp": "2026-03-23 16:41:04"}
+{"task_id": "f3ac85a7-74f9-42cd-901a-2acc8135d3fb", "worker_pid": 158189, "worker_thread": "Thread-15 (background_task)", "files_count": 0, "images_count": 0, "event": "task_started", "level": "info", "logger": "ai_service", "timestamp": "2026-03-23 16:41:04"}

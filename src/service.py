@@ -1,23 +1,23 @@
-import json
-import logging
 import os
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 
+import structlog
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from reports_generator import ReportGenerator, StateAgents
+from report_generator import ReportGenerator, StateAgents
+from utils.log import setup_logging
 
 UPLOAD_DIR = "uploads"
 TMP_DIR = "tmp"
-LOG_DIR = "logs"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(TMP_DIR, exist_ok=True)
-os.makedirs(LOG_DIR, exist_ok=True)
+
+setup_logging()
 
 app = Flask(__name__)
 
@@ -44,19 +44,7 @@ class Task:
 
 tasks: dict[str, Task] = {}
 
-# ---------- LOGGER ----------
-
-logger = logging.getLogger("ai_service")
-logger.setLevel(logging.INFO)
-
-handler = logging.FileHandler(os.path.join(LOG_DIR, "events.jsonl"), encoding="utf-8")
-logger.addHandler(handler)
-
-
-def log_event(event: str, **data):
-    logger.info(
-        json.dumps({"event": event, "time": time.time(), **data}, ensure_ascii=False)
-    )
+logger = structlog.get_logger("ai_service")
 
 
 def create_task_dirs(task_id: str) -> tuple[str, str]:
@@ -73,12 +61,19 @@ def create_task_dirs(task_id: str) -> tuple[str, str]:
 
 def background_task(task: Task, images: list[tuple[str, str]]):
     """Фоновая задача генерации отчета."""
+    start_time = time.time()
+
+    log = logger.bind(
+        task_id=task.task_id,
+        worker_pid=os.getpid(),
+        worker_thread=threading.current_thread().name,
+    )
+    log.info("task_started", files_count=len(task.file_paths), images_count=len(images))
+
+    report_generator = ReportGenerator()
+
     try:
-        log_event("task_started", task_id=task.task_id, files=len(task.file_paths), images=len(images))
-
-        orchestrator = ReportGenerator()
-
-        state = orchestrator.generate_report(
+        state = report_generator.generate_report(
             user_prompt=task.user_prompt,
             file_paths=task.file_paths,
             template_path=task.template_path,
@@ -90,15 +85,25 @@ def background_task(task: Task, images: list[tuple[str, str]]):
         task.state = state
         task.status = "done"
 
-        log_event("task_completed", task_id=task.task_id, result=state.report_docx_path)
+        duration = time.time() - start_time
 
+        log.info(
+            "task_completed",
+            duration_sec=round(duration, 2),
+            result_path=state.report_docx_path,
+            status="success",
+        )
     except Exception as e:
-        task.status = "error"
-        task.error = str(e)
-        log_event("task_failed", task_id=task.task_id, error=str(e))
+        duration = time.time() - start_time
 
-
-# ---------- WEB ----------
+        log.exception(
+            "task_failed",
+            duration_sec=round(duration, 2),
+            error_type=type(e).__name__,
+            error_msg=str(e),
+            status="error",
+        )
+        raise
 
 
 @app.route("/")
@@ -152,11 +157,16 @@ def start():
         file_paths=saved_paths,
         template_path=template_path,
         tmp_dir=task_tmp_dir,
-        upload_dir=task_upload_dir
+        upload_dir=task_upload_dir,
     )
     tasks[task_id] = task
 
-    log_event("task_queued", task_id=task_id, files=len(saved_paths), images=len(images))
+    logger.info(
+        "task_queued",
+        task_id=task_id,
+        files_count=len(saved_paths),
+        images_count=len(images),
+    )
 
     thread = threading.Thread(target=background_task, args=(task, images))
     thread.start()
