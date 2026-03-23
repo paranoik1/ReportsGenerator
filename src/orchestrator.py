@@ -1,4 +1,5 @@
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type, TypeVar
@@ -60,11 +61,11 @@ class Orchestrator:
             system_prompt_template="user_prompt_analyst.j2",
             temperature=0,
         ),
-        "planner": AiModel(
-            name="qwen3.5:cloud",
-            system_prompt_template="planner.j2",
-            reasoning_effort="high",
-        ),
+        # "planner": AiModel(
+        #     name="qwen3.5:cloud",
+        #     system_prompt_template="planner.j2",
+        #     reasoning_effort="high",
+        # ),
         "formatter": AiModel(
             name="qwen3.5:cloud",
             system_prompt_template="formatter.j2",
@@ -178,6 +179,9 @@ class Orchestrator:
         return list_blocks.blocks
 
     def fill_data_blocks_registry(self, state: StateAgents):
+        """
+        Функция для создания блоков данных через LLM
+        """
         self.log.info("fill_data_blocks_registry_start")
         dbr = state.data_blocks_registry
 
@@ -254,12 +258,20 @@ class Orchestrator:
         if is_json:
             kwargs["response_format"] = {"type": "json_object"}
 
+        start_time = time.time()
         response = self.client.chat.completions.create(
             model=model.name,
             messages=messages,  # type: ignore
             reasoning_effort=model.reasoning_effort,
             temperature=model.temperature,
             **kwargs,
+        )
+        duration = time.time() - start_time
+
+        self.log.debug(
+            "llm_request_completed",
+            model=model.name,
+            duration_sec=round(duration, 2),
         )
 
         return response
@@ -309,8 +321,8 @@ class Orchestrator:
                 )
                 raise ValueError("LLM вернула невалидный JSON")
 
-    def planner_agent(self, state: StateAgents):
-        model = self.MODELS_ROLES["planner"]
+    # def planner_agent(self, state: StateAgents):
+    #     model = self.MODELS_ROLES["planner"]
 
     def run(self, state: StateAgents) -> StateAgents:
         """
