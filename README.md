@@ -1,4 +1,5 @@
 # Roadmap
+- Document - очищать docx_markdown от images
 
 ## Formatter CoT (Chain-of-THought)
 - Прочитать блоки данных, связанные с практической работой

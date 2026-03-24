@@ -3,7 +3,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Type, TypeVar
+from typing import Any
 
 import pydantic
 import structlog
@@ -14,9 +14,6 @@ from openai.types.chat.chat_completion import ChatCompletion
 from models import Document, FilePath, StateAgents
 from utils.data_block_registry import DataBlock
 from utils.prompt_manager import PromptManager
-
-T = TypeVar("T", bound=pydantic.BaseModel)
-
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +40,7 @@ FORMATTER_TOOLS = [
     },
     {"type": "function", "name": "finish", "description": "Завершает работу"},
 ]
+TIMEOUT_LLM = 5 * 60
 
 
 @dataclass
@@ -104,74 +102,93 @@ class Orchestrator:
         description, content = raw_text.split("\n", maxsplit=1)
         return DataBlock(description=description.strip(), content=content.strip())
 
-    def _extract_blocks_iterative(
+    def parse_blocks(self, response_text: str) -> list[DataBlock]:
+        """
+        Извлекает блоки данных из ответа LLM.
+
+        Args:
+            response_text: Текст ответа от LLM с блоками формата ===BLOCK_START=== ... ===BLOCK_END===
+
+        Returns:
+            Список блоков
+        """
+        blocks = []
+
+        # Нормализуем окончания строк
+        text = response_text.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Находим все блоки по разделителям
+        pattern = r"===BLOCK_START===\n(.*?)\n===BLOCK_END==="
+        matches = re.finditer(pattern, text, re.DOTALL)
+
+        for match in matches:
+            block_text = match.group(1).strip()
+            lines = block_text.split("\n", maxsplit=1)
+
+            if len(lines) < 2:
+                self.log.warning("parse_block_error", lines=lines)
+                continue
+
+            description = lines[0].strip()
+            content = lines[1].strip()
+
+            blocks.append(DataBlock(description=description, content=content))
+
+        return blocks
+
+    def _execute_request(
         self,
         model: AiModel,
         messages: list[dict],
-        log_prefix: str,
-    ) -> list[DataBlock]:
+        is_json: bool = False,
+        **kwargs,
+    ) -> ChatCompletion:
         """
-        Итеративно извлекает блоки из LLM.
-
-        Args:
-            model: Модель для запросов
-            messages: Сообщения для отправки модели
-            log_prefix: Префикс для логов (например, "document_analyst" или "user_prompt_analyst")
-
-        Returns:
-            Список извлечённых блоков
+        Приватный метод для общей логики запроса
         """
-        blocks: list[DataBlock] = []
-        iteration = 0
-        max_iterations = 20
+        if is_json:
+            kwargs["response_format"] = {"type": "json_object"}
 
-        while iteration < max_iterations:
-            iteration += 1
-
-            block_raw = self.run_agent(model, messages)
-            if not block_raw:
-                continue
-
-            block_raw = block_raw.strip()
-
-            # Проверяем на finish
-            if block_raw.lower() == "finish":
-                self.log.debug(
-                    f"{log_prefix}_finished",
-                    blocks_extracted=len(blocks),
-                    iterations=iteration,
-                )
-                break
-
-            # Парсим блок
-            try:
-                block = self.convert_raw_text_to_block(block_raw)
-                blocks.append(block)
-                self.log.debug(
-                    "block_extracted",
-                    block_description=block.description,
-                    content_len=len(block.content),
-                )
-            except ValueError as e:
-                self.log.warning(
-                    "failed_to_parse_block",
-                    raw_text=block_raw[:200],
-                    error=str(e),
-                )
-                break
-
-            # Добавляем ответ в историю для контекста
-            messages.append({"role": "assistant", "content": block_raw})
-            messages.append({"role": "user", "content": "Следующий или finish"})
-
-        if iteration >= max_iterations:
-            self.log.warning(
-                f"{log_prefix}_max_iterations",
-                iterations=iteration,
-                blocks_extracted=len(blocks),
+        start_time = time.time()
+        try:
+            response = self.client.chat.completions.create(
+                model=model.name,
+                messages=messages,  # type: ignore
+                reasoning_effort=model.reasoning_effort,
+                temperature=model.temperature,
+                timeout=TIMEOUT_LLM,
+                **kwargs,
             )
+        except InternalServerError as ex:
+            duration = time.time() - start_time
+            self.log.exception(
+                "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
+            )
+            raise ex
 
-        return blocks
+        duration = time.time() - start_time
+        self.log.debug(
+            "llm_request_completed",
+            model=model.name,
+            duration_sec=round(duration, 2),
+        )
+
+        return response
+
+    def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str | None:
+        """
+        Возвращает текстовый ответ от LLM
+        """
+        try:
+            response = self._execute_request(model=model, messages=messages, **kwargs)
+        except:
+            return None
+
+        answer = response.choices[0].message.content
+        if answer is None:
+            self.log.exception("Ответ пустой")
+
+        return answer
 
     def _documents_summirize(self, docs: list[Document]) -> list[DataBlock]:
         model = self.MODELS_ROLES["document_analyst"]
@@ -180,7 +197,7 @@ class Orchestrator:
         system_message = {"role": "system", "content": full_system_prompt}
 
         blocks: list[DataBlock] = []
-        for i, doc in enumerate(docs):
+        for doc in docs:
             doc_prompt = f"Документ:\n{doc.content}"
 
             messages = [
@@ -193,9 +210,11 @@ class Orchestrator:
                 prompt_len=len(full_system_prompt) + len(doc_prompt),
             )
 
-            doc_blocks = self._extract_blocks_iterative(
-                model, messages, f"document_analyst_doc{i}"
-            )
+            response = self.run_agent(model, messages)
+            if not response:
+                continue
+
+            doc_blocks = self.parse_blocks(response)
             blocks.extend(doc_blocks)
 
         self.log.info("documents_summarized", blocks_count=len(blocks))
@@ -243,7 +262,11 @@ class Orchestrator:
             user_prompt_len=len(user_prompt),
         )
 
-        blocks = self._extract_blocks_iterative(model, messages, "user_prompt_analyst")
+        response = self.run_agent(model, messages)
+        if not response:
+            return []
+
+        blocks = self.parse_blocks(response)
 
         self.log.info("user_prompt_analyzed", blocks_count=len(blocks))
         return blocks
@@ -291,13 +314,14 @@ class Orchestrator:
         dbr = state.data_blocks_registry
 
         # Формируем контекст блоков для промпта
-        blocks_context = "\n".join(
-            f"- `{block_id}`: {block.description}"
-            for block_id, block in dbr.get_blocks().items()
+        blocks_context = dbr.get_blocks_context()
+        images_context = "\n".join(
+            [f"- {img.description}: {img.filepath}" for img in state.images]
         )
 
         full_system_prompt = model.render_system_prompt(
-            blocks_context=blocks_context or "Нет доступных блоков"
+            blocks_context=blocks_context or "Нет доступных блоков",
+            images_context=images_context,
         )
 
         messages = [
@@ -307,9 +331,21 @@ class Orchestrator:
 
         self.log.info("formatter_agent_start")
 
-        # Цикл работы с tools
-        report_parts = []
+        report_parts: list[str] = []
 
+        def finish(log_event: str, log_method: str = "info") -> str:
+            report = "\n".join(report_parts)
+            state.report_markdown = report
+            log = getattr(self.log, log_method)
+
+            log(
+                log_event,
+                report_len=len(report),
+                iterations=state.iteration,
+            )
+            return report
+
+        # Цикл работы с tools
         while state.iteration < state.max_iterations:
             state.iteration += 1
 
@@ -319,18 +355,34 @@ class Orchestrator:
                 tools=FORMATTER_TOOLS,
             )
 
+            message = response.choices[0].message
+            model_extra = message.model_extra
+
+            if model_extra:
+                reasoning = model_extra.get("reasoning")
+                if reasoning:
+                    reasoning_clean = reasoning.strip().replace("\n", " ")
+
+                    self.log.info("reasoning_llm", reasoning=reasoning_clean)
+
             # Проверяем, есть ли вызовы tools
-            tool_calls = response.choices[0].message.tool_calls
+            tool_calls = message.tool_calls
+
+            messages.append(message.model_dump())
 
             if not tool_calls:
                 # Если нет tool calls, просто добавляем ответ
-                content = response.choices[0].message.content
+                content = message.content
                 if content:
                     report_parts.append(content)
-                continue
 
-            # Обрабатываем tool calls
-            messages.append(response.choices[0].message.model_dump())
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Продолжай или подверди окончание написания отчета, вызвав finish tool",
+                    }
+                )
+                continue
 
             for tool_call in tool_calls:
                 if tool_call.type != "function":
@@ -347,29 +399,25 @@ class Orchestrator:
 
                 if func_name == "read_block":
                     block_id = func_args.get("block_id")
-                    block_content = dbr.read_block(block_id)
-                    if block_content:
-                        tool_result = json.dumps(
-                            {"content_block": block_content},
-                            ensure_ascii=False,
-                        )
+                    if block_id.isdigit():
+                        block_content = dbr.read_block(int(block_id))
+                        if block_content:
+                            tool_result = json.dumps(
+                                {"content_block": block_content},
+                                ensure_ascii=False,
+                            )
+                        else:
+                            tool_result = json.dumps(
+                                {"error": f"Блок '{block_id}' не найден"},
+                                ensure_ascii=False,
+                            )
                     else:
                         tool_result = json.dumps(
-                            {"error": f"Блок '{block_id}' не найден"},
+                            {"error": "block_id должен быть типом int"},
                             ensure_ascii=False,
                         )
-
                 elif func_name == "finish":
-                    report = "\n".join(report_parts)
-                    state.report_markdown = report
-
-                    self.log.info(
-                        "formatter_agent_done",
-                        report_len=len(report),
-                        iterations=state.iteration,
-                    )
-                    return report
-
+                    return finish("formatter_agent_done")
                 else:
                     tool_result = json.dumps(
                         {"error": f"Неизвестный tool: {func_name}"},
@@ -386,67 +434,7 @@ class Orchestrator:
                 )
 
         # Если цикл завершился без finish
-        report = "\n".join(report_parts)
-        state.report_markdown = report
-        self.log.warning(
-            "formatter_agent_max_iterations",
-            iterations=state.iteration,
-            report_len=len(report),
-        )
-        return report
-
-    def _execute_request(
-        self,
-        model: AiModel,
-        messages: list[dict],
-        is_json: bool = False,
-        **kwargs,
-    ) -> ChatCompletion:
-        """
-        Приватный метод для общей логики запроса
-        """
-        if is_json:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        start_time = time.time()
-        try:
-            response = self.client.chat.completions.create(
-                model=model.name,
-                messages=messages,  # type: ignore
-                reasoning_effort=model.reasoning_effort,
-                temperature=model.temperature,
-                **kwargs,
-            )
-        except InternalServerError:
-            duration = time.time() - start_time
-            self.log.exception(
-                "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
-            )
-            raise
-
-        duration = time.time() - start_time
-        self.log.debug(
-            "llm_request_completed",
-            model=model.name,
-            duration_sec=round(duration, 2),
-        )
-
-        return response
-
-    def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str | None:
-        """
-        Метод для обычного текста
-        """
-        try:
-            response = self._execute_request(model=model, messages=messages, **kwargs)
-        except:
-            return None
-
-        answer = response.choices[0].message.content
-        if answer is None:
-            raise ValueError("Ответ пустой")
-
-        return answer
+        return finish("formatter_agent_max_iterations", "warning")
 
     def run(self, state: StateAgents) -> StateAgents:
         """

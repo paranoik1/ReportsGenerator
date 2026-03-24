@@ -60,7 +60,7 @@ class HTMLToDocx:
     def render(self, html: str):
         soup = BeautifulSoup(html, "html.parser")
 
-        for element in soup.contents:
+        for element in soup:
             self.handle_block(element)
 
     # ---------- BLOCK LEVEL ----------
@@ -94,8 +94,8 @@ class HTMLToDocx:
         elif name == "table":
             self.handle_table(node)
 
-        elif name == "code":
-            self.handle_code_block(node)
+        # elif name == "code":
+        #     self.handle_code_block(node)
 
         else:
             for child in node.children:
@@ -256,14 +256,17 @@ def html_to_docx(html_path: str, docx_path: str):
 if __name__ == "__main__":
     import markdown
 
-    with open("tmp/report2.md") as fp:
+    md_path = "uploads/report.md"
+
+    with open(md_path) as fp:
         md_result = fp.read()
 
     html_result = markdown.markdown(
         md_result, extensions=["extra", "sane_lists", "nl2br"]
     )
 
-    with open("tmp/report2.html", "w") as fp:
+    html_path = "uploads/report.html"
+    with open(html_path, "w") as fp:
         fp.write(html_result)
 
-    html_to_docx("tmp/report2.html", "tmp/report2.docx")
+    html_to_docx(html_path, "uploads/report.docx")
