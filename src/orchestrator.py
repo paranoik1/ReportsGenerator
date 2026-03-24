@@ -1,3 +1,4 @@
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -6,30 +7,42 @@ from typing import Any, Type, TypeVar
 
 import pydantic
 import structlog
-from openai import OpenAI
+from openai import InternalServerError, OpenAI
 from openai.types import ReasoningEffort
 from openai.types.chat.chat_completion import ChatCompletion
 
 from models import Document, FilePath, StateAgents
-from utils.data_block_registry import BaseModel, DataBlockWithId
+from utils.data_block_registry import DataBlock
 from utils.prompt_manager import PromptManager
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T", bound=pydantic.BaseModel)
 
 
 logger = structlog.get_logger(__name__)
 
 
-class ListDataBlocks(BaseModel):
-    """
-    Нужен для OpenAI метода parse, который требует Pydantic Model в text_format (не принимает list[DataBlockWithId])
-    """
-
-    blocks: list[DataBlockWithId]
-
-
 # Глобальный менеджер промптов
 _prompt_manager = PromptManager()
+
+# Определяем tools
+FORMATTER_TOOLS = [
+    {
+        "type": "function",
+        "name": "read_block",
+        "description": "Получает содержимое блока данных по его ID",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "block_id": {
+                    "type": "int",
+                    "description": "ID блока данных для чтения",
+                }
+            },
+            "required": ["block_id"],
+        },
+    },
+    {"type": "function", "name": "finish", "description": "Завершает работу"},
+]
 
 
 @dataclass
@@ -86,83 +99,139 @@ class Orchestrator:
         self.log = logger.bind(task_id=self.task_id)
 
     @staticmethod
-    def clean_json_from_markdown(text: str) -> str:
-        """Удаляет любые markdown-обёртки вокруг JSON"""
-        text = text.strip()
+    def convert_raw_text_to_block(raw_text: str) -> DataBlock:
+        """Парсит сырой текст в блок: первая строка - description, остальное - content."""
+        description, content = raw_text.split("\n", maxsplit=1)
+        return DataBlock(description=description.strip(), content=content.strip())
 
-        # Удаляем ``` вокруг json
-        text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\n?```$", "", text, flags=re.IGNORECASE)
+    def _extract_blocks_iterative(
+        self,
+        model: AiModel,
+        messages: list[dict],
+        log_prefix: str,
+    ) -> list[DataBlock]:
+        """
+        Итеративно извлекает блоки из LLM.
 
-        # Найти первый { и последний } (если JSON внутри текста)
-        if not text.startswith("{"):
-            match = re.search(r"\{[\s\S]*\}", text)
-            if match:
-                text = match.group(0)
+        Args:
+            model: Модель для запросов
+            messages: Сообщения для отправки модели
+            log_prefix: Префикс для логов (например, "document_analyst" или "user_prompt_analyst")
 
-        return text.strip()
+        Returns:
+            Список извлечённых блоков
+        """
+        blocks: list[DataBlock] = []
+        iteration = 0
+        max_iterations = 20
 
-    def _documents_summirize(
-        self, docs: list[Document], blocks_ids_context: str = ""
-    ) -> list[DataBlockWithId]:
+        while iteration < max_iterations:
+            iteration += 1
+
+            block_raw = self.run_agent(model, messages)
+            if not block_raw:
+                continue
+
+            block_raw = block_raw.strip()
+
+            # Проверяем на finish
+            if block_raw.lower() == "finish":
+                self.log.debug(
+                    f"{log_prefix}_finished",
+                    blocks_extracted=len(blocks),
+                    iterations=iteration,
+                )
+                break
+
+            # Парсим блок
+            try:
+                block = self.convert_raw_text_to_block(block_raw)
+                blocks.append(block)
+                self.log.debug(
+                    "block_extracted",
+                    block_description=block.description,
+                    content_len=len(block.content),
+                )
+            except ValueError as e:
+                self.log.warning(
+                    "failed_to_parse_block",
+                    raw_text=block_raw[:200],
+                    error=str(e),
+                )
+                break
+
+            # Добавляем ответ в историю для контекста
+            messages.append({"role": "assistant", "content": block_raw})
+            messages.append({"role": "user", "content": "Следующий или finish"})
+
+        if iteration >= max_iterations:
+            self.log.warning(
+                f"{log_prefix}_max_iterations",
+                iterations=iteration,
+                blocks_extracted=len(blocks),
+            )
+
+        return blocks
+
+    def _documents_summirize(self, docs: list[Document]) -> list[DataBlock]:
         model = self.MODELS_ROLES["document_analyst"]
 
-        full_system_prompt = model.render_system_prompt(
-            task="Создать план по написанию отчета по практической работе",
-            blocks_ids_context=blocks_ids_context,
-        )
+        full_system_prompt = model.render_system_prompt()
         system_message = {"role": "system", "content": full_system_prompt}
 
-        blocks: list[DataBlockWithId] = []
-        for doc in docs:
+        blocks: list[DataBlock] = []
+        for i, doc in enumerate(docs):
+            doc_prompt = f"Документ:\n{doc.content}"
+
             messages = [
                 system_message,
-                {"role": "user", "content": f"Документ:\n{doc.content}"},
+                {"role": "user", "content": doc_prompt},
             ]
             self.log.debug(
                 "calling_document_analyst",
                 doc_path=doc.filepath,
-                prompt_len=len(full_system_prompt),
+                prompt_len=len(full_system_prompt) + len(doc_prompt),
             )
-            list_blocks = self.run_agent_structured(model, messages, ListDataBlocks)
-            blocks += list_blocks.blocks
+
+            doc_blocks = self._extract_blocks_iterative(
+                model, messages, f"document_analyst_doc{i}"
+            )
+            blocks.extend(doc_blocks)
 
         self.log.info("documents_summarized", blocks_count=len(blocks))
         return blocks
 
-    def _template_specs_extract(self, template: Document) -> DataBlockWithId:
+    def _template_specs_extract(self, template: Document) -> DataBlock:
         model = self.MODELS_ROLES["template_analyst"]
 
-        full_system_prompt = model.render_system_prompt(
-            task="Создать план по написанию отчета по практической работе"
-        )
+        full_system_prompt = model.render_system_prompt()
+        template_prompt = f"Документ:\n{template.content}"
         messages = [
             {"role": "system", "content": full_system_prompt},
-            {"role": "user", "content": f"Документ:\n{template.content}"},
+            {"role": "user", "content": template_prompt},
         ]
 
         self.log.debug(
             "calling_template_analyst",
             template_path=template.filepath,
-            prompt_len=len(full_system_prompt),
+            prompt_len=len(full_system_prompt) + len(template_prompt),
         )
-        block = self.run_agent_structured(
-            model, messages, response_model=DataBlockWithId
+
+        content = self.run_agent(model, messages)
+        if not content:
+            self.log.critical("template_specs_extracted_failed")
+            raise
+
+        self.log.info("template_specs_extracted", content_len=len(content))
+        return DataBlock(
+            description="Структура и форматирование шаблона отчёта",
+            content=content,
         )
-        block.id = "template_specs"
 
-        self.log.info("template_specs_extracted")
-        return block
-
-    def _user_prompt_data_extract(
-        self, user_prompt: str, blocks_ids_context: str
-    ) -> list[DataBlockWithId]:
+    def _user_prompt_data_extract(self, user_prompt: str) -> list[DataBlock]:
         model = self.MODELS_ROLES["user_prompt_analyst"]
 
-        full_system_prompt = model.render_system_prompt(
-            task="Создать план по написанию отчета по практической работе",
-            blocks_ids_context=blocks_ids_context,
-        )
+        full_system_prompt = model.render_system_prompt()
         messages = [
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": user_prompt},
@@ -173,10 +242,11 @@ class Orchestrator:
             prompt_len=len(full_system_prompt),
             user_prompt_len=len(user_prompt),
         )
-        list_blocks = self.run_agent_structured(model, messages, ListDataBlocks)
 
-        self.log.info("user_prompt_analyzed", blocks_count=len(list_blocks.blocks))
-        return list_blocks.blocks
+        blocks = self._extract_blocks_iterative(model, messages, "user_prompt_analyst")
+
+        self.log.info("user_prompt_analyzed", blocks_count=len(blocks))
+        return blocks
 
     def fill_data_blocks_registry(self, state: StateAgents):
         """
@@ -186,23 +256,24 @@ class Orchestrator:
         dbr = state.data_blocks_registry
 
         if state.template:
-            template_data_block = self._template_specs_extract(state.template)
-            dbr.add_block_from_dto(template_data_block)
+            try:
+                template_data_block = self._template_specs_extract(state.template)
+                dbr.add_block(template_data_block)
+            except:
+                self.log.exception("fill_exception")
 
-        blocks_ids = dbr.get_blocks().keys()
-        docs_summirized_blocks = self._documents_summirize(
-            state.documents, ", ".join(blocks_ids)
-        )
+        docs_summirized_blocks = self._documents_summirize(state.documents)
         for block in docs_summirized_blocks:
-            dbr.add_block_from_dto(block)
+            dbr.add_block(block)
 
-        blocks_ids = dbr.get_blocks().keys()
-        user_data_blocks = self._user_prompt_data_extract(
-            state.user_prompt, ", ".join(blocks_ids)
-        )
+        user_data_blocks = self._user_prompt_data_extract(state.user_prompt)
 
         for block in user_data_blocks:
-            dbr.add_block_from_dto(block)
+            if block.description == "user_prompt":
+                state.user_prompt_cleaned = block.content
+                continue
+
+            dbr.add_block(block)
 
         data_blocks_path = self.output_dir / "data_blocks.json"
         dbr.save(data_blocks_path)
@@ -214,35 +285,114 @@ class Orchestrator:
 
     def formatter_agent(self, state: StateAgents) -> str:
         """
-        Формирует финальный markdown отчёт и сохраняет его в StateAgents
+        Формирует финальный markdown отчёт с использованием Chain-of-Thought и tools.
         """
         model = self.MODELS_ROLES["formatter"]
+        dbr = state.data_blocks_registry
 
-        docs_context = "\n\n".join(doc.content for doc in state.documents)
-
-        images_context = ""
-        if state.images:
-            images_context = "\n\n".join(
-                f"Путь к файлу: {img.filepath}\nОписание: {img.description}\n------\n"
-                for img in state.images
-            )
-
-        template_context = ""
-        if state.template:
-            template_context = state.template.content
-
-        full_system_prompt = model.render_system_prompt(
-            docs_context=docs_context or "Нет документов",
-            template_context=template_context or "Нет примера отчета",
-            images_context=images_context or "Пользователь не предоставил изображений",
+        # Формируем контекст блоков для промпта
+        blocks_context = "\n".join(
+            f"- `{block_id}`: {block.description}"
+            for block_id, block in dbr.get_blocks().items()
         )
 
-        user_message = {"role": "user", "content": state.user_prompt}
-        messages = [{"role": "system", "content": full_system_prompt}, user_message]
+        full_system_prompt = model.render_system_prompt(
+            blocks_context=blocks_context or "Нет доступных блоков"
+        )
 
-        report = self.run_agent(model, messages)
+        messages = [
+            {"role": "system", "content": full_system_prompt},
+            {"role": "user", "content": state.user_prompt_cleaned or state.user_prompt},
+        ]
+
+        self.log.info("formatter_agent_start")
+
+        # Цикл работы с tools
+        report_parts = []
+
+        while state.iteration < state.max_iterations:
+            state.iteration += 1
+
+            response = self._execute_request(
+                model=model,
+                messages=messages,
+                tools=FORMATTER_TOOLS,
+            )
+
+            # Проверяем, есть ли вызовы tools
+            tool_calls = response.choices[0].message.tool_calls
+
+            if not tool_calls:
+                # Если нет tool calls, просто добавляем ответ
+                content = response.choices[0].message.content
+                if content:
+                    report_parts.append(content)
+                continue
+
+            # Обрабатываем tool calls
+            messages.append(response.choices[0].message.model_dump())
+
+            for tool_call in tool_calls:
+                if tool_call.type != "function":
+                    continue
+
+                func_name = tool_call.function.name
+                func_args = json.loads(tool_call.function.arguments)
+
+                self.log.debug(
+                    "tool_call",
+                    tool_name=func_name,
+                    tool_args=func_args,
+                )
+
+                if func_name == "read_block":
+                    block_id = func_args.get("block_id")
+                    block_content = dbr.read_block(block_id)
+                    if block_content:
+                        tool_result = json.dumps(
+                            {"content_block": block_content},
+                            ensure_ascii=False,
+                        )
+                    else:
+                        tool_result = json.dumps(
+                            {"error": f"Блок '{block_id}' не найден"},
+                            ensure_ascii=False,
+                        )
+
+                elif func_name == "finish":
+                    report = "\n".join(report_parts)
+                    state.report_markdown = report
+
+                    self.log.info(
+                        "formatter_agent_done",
+                        report_len=len(report),
+                        iterations=state.iteration,
+                    )
+                    return report
+
+                else:
+                    tool_result = json.dumps(
+                        {"error": f"Неизвестный tool: {func_name}"},
+                        ensure_ascii=False,
+                    )
+
+                # Добавляем результат tool call в messages
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": tool_result,
+                    }
+                )
+
+        # Если цикл завершился без finish
+        report = "\n".join(report_parts)
         state.report_markdown = report
-
+        self.log.warning(
+            "formatter_agent_max_iterations",
+            iterations=state.iteration,
+            report_len=len(report),
+        )
         return report
 
     def _execute_request(
@@ -259,15 +409,22 @@ class Orchestrator:
             kwargs["response_format"] = {"type": "json_object"}
 
         start_time = time.time()
-        response = self.client.chat.completions.create(
-            model=model.name,
-            messages=messages,  # type: ignore
-            reasoning_effort=model.reasoning_effort,
-            temperature=model.temperature,
-            **kwargs,
-        )
-        duration = time.time() - start_time
+        try:
+            response = self.client.chat.completions.create(
+                model=model.name,
+                messages=messages,  # type: ignore
+                reasoning_effort=model.reasoning_effort,
+                temperature=model.temperature,
+                **kwargs,
+            )
+        except InternalServerError:
+            duration = time.time() - start_time
+            self.log.exception(
+                "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
+            )
+            raise
 
+        duration = time.time() - start_time
         self.log.debug(
             "llm_request_completed",
             model=model.name,
@@ -276,53 +433,20 @@ class Orchestrator:
 
         return response
 
-    def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str:
+    def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str | None:
         """
         Метод для обычного текста
         """
-        response = self._execute_request(model=model, messages=messages, **kwargs)
+        try:
+            response = self._execute_request(model=model, messages=messages, **kwargs)
+        except:
+            return None
 
         answer = response.choices[0].message.content
         if answer is None:
             raise ValueError("Ответ пустой")
 
         return answer
-
-    def run_agent_structured(
-        self, model: AiModel, messages: list[dict], response_model: Type[T], **kwargs
-    ) -> T:
-        """
-        Метод для структурированного ответа
-        """
-        response = self._execute_request(
-            model=model,
-            messages=messages,
-            is_json=True,
-            **kwargs,
-        )
-
-        raw_answer = response.choices[0].message.content
-        if raw_answer is None:
-            raise ValueError("Ответ пустой")
-
-        raw_answer = raw_answer.strip()
-
-        try:
-            return response_model.model_validate_json(raw_answer)
-        except pydantic.ValidationError:
-            cleaned_answer = self.clean_json_from_markdown(raw_answer)
-            try:
-                return response_model.model_validate_json(cleaned_answer)
-            except pydantic.ValidationError:
-                self.log.critical(
-                    "invalid_json",
-                    raw_answer=raw_answer[:500],
-                    cleaned_answer=cleaned_answer[:500],
-                )
-                raise ValueError("LLM вернула невалидный JSON")
-
-    # def planner_agent(self, state: StateAgents):
-    #     model = self.MODELS_ROLES["planner"]
 
     def run(self, state: StateAgents) -> StateAgents:
         """
