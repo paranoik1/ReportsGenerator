@@ -99,7 +99,8 @@ class Document:
 
         elif ext == ".docx":
             return convert_file(
-                self.filepath, "markdown-simple_tables-grid_tables-multiline_tables"
+                self.filepath,
+                "markdown-simple_tables-grid_tables-multiline_tables-link_attributes-raw_html",
             )
 
         elif ext in [".txt", ".md", ".html"]:

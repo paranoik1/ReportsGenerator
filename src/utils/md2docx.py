@@ -1,4 +1,7 @@
+import html
 import os
+import re
+import uuid
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
@@ -241,6 +244,61 @@ class HTMLToDocx:
             self.render_inline(tag, paragraph)
 
 
+def protect_code_blocks(md_text: str) -> tuple[str, dict[str, str]]:
+    """
+    Извлекает блоки <code>...</code> из markdown-текста перед конвертацией.
+
+    Returns:
+        (текст с плейсхолдерами, словарь {плейсхолдер: экранированный код})
+    """
+    code_map: dict[str, str] = {}
+    placeholder_prefix = "CODE_BLOCK_"
+
+    def replace_code(match):
+        code_content = match.group(1)  # Содержимое между <code> и </code>
+        # HTML-экранируем спецсимволы, чтобы они не ломали парсинг
+        escaped = html.escape(code_content)
+        # Создаём уникальный плейсхолдер
+        placeholder = f"{placeholder_prefix}{len(code_map)}_{uuid.uuid4()}"
+        code_map[placeholder] = f"<code>{escaped}</code>"
+        return placeholder
+
+    # Находим все <code>...</code> блоки (DOTALL для переносов строк)
+    pattern = r"<code>(.*?)</code>"
+    protected_text = re.sub(pattern, replace_code, md_text, flags=re.DOTALL)
+
+    return protected_text, code_map
+
+
+def restore_code_blocks(html_text: str, code_map: dict[str, str]) -> str:
+    """
+    Восстанавливает блоки кода в уже сконвертированном HTML.
+    """
+    for placeholder, code_html in code_map.items():
+        # Заменяем плейсхолдер на готовый <code>...</code>
+        html_text = html_text.replace(placeholder, code_html)
+    return html_text
+
+
+def markdown_to_html_safe(md_text: str) -> str:
+    """
+    Конвертирует markdown в HTML с безопасной обработкой блоков кода.
+    """
+    # 1. Извлекаем код
+    protected_md, code_map = protect_code_blocks(md_text)
+
+    # 2. Конвертируем оставшийся markdown в HTML
+    html_result = markdown.markdown(
+        protected_md,
+        extensions=["tables", "sane_lists", "nl2br"],
+    )
+
+    # 3. Восстанавливаем блоки кода
+    final_html = restore_code_blocks(html_result, code_map)
+
+    return final_html
+
+
 def html_to_docx(html_path: str, docx_path: str):
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
@@ -261,9 +319,7 @@ if __name__ == "__main__":
     with open(md_path) as fp:
         md_result = fp.read()
 
-    html_result = markdown.markdown(
-        md_result, extensions=["extra", "sane_lists", "nl2br"]
-    )
+    html_result = markdown_to_html_safe(md_result)
 
     html_path = "uploads/report.html"
     with open(html_path, "w") as fp:
