@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 
 class ReportGenerator:
-    def __init__(self, task_id: str, output_dir: str) -> None:
+    def __init__(self, task_id: str, output_dir: str | Path) -> None:
         self.log = logger.bind(task_id=task_id)
         self.task_id = task_id
         self.output_dir = Path(output_dir)

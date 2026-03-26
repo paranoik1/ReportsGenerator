@@ -1,11 +1,12 @@
 import json
 import re
+import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pydantic
 import structlog
 from openai import InternalServerError, OpenAI
 from openai.types import ReasoningEffort
@@ -16,7 +17,6 @@ from utils.data_block_registry import DataBlock
 from utils.prompt_manager import PromptManager
 
 logger = structlog.get_logger(__name__)
-
 
 # Глобальный менеджер промптов
 _prompt_manager = PromptManager()
@@ -31,7 +31,7 @@ FORMATTER_TOOLS = [
             "type": "object",
             "properties": {
                 "block_id": {
-                    "type": "int",
+                    "type": "integer",
                     "description": "ID блока данных для чтения",
                 }
             },
@@ -40,7 +40,32 @@ FORMATTER_TOOLS = [
     },
     {"type": "function", "name": "finish", "description": "Завершает работу"},
 ]
+
 TIMEOUT_LLM = 5 * 60
+
+
+# ========== RATE LIMITER ==========
+class RateLimiter:
+    """
+    Контролирует частоту запросов к API.
+    Использует простую задержку между запросами.
+    """
+
+    def __init__(self, min_delay: float = 1.0):
+        self.min_delay = min_delay  # Минимальная задержка между запросами (сек)
+        self._lock = threading.Lock()
+        self._last_call_time = 0.0
+        # self._cond = threading.Condition()
+
+    def acquire(self):
+        """Ждёт, пока можно будет сделать запрос."""
+        # FIXME: use Condition without Lock
+        with self._lock:
+            elapsed = time.time() - self._last_call_time
+            if elapsed < self.min_delay:
+                sleep_time = self.min_delay - elapsed
+                time.sleep(sleep_time)
+            self._last_call_time = time.time()
 
 
 @dataclass
@@ -72,11 +97,6 @@ class Orchestrator:
             system_prompt_template="user_prompt_analyst.j2",
             temperature=0,
         ),
-        # "planner": AiModel(
-        #     name="qwen3.5:cloud",
-        #     system_prompt_template="planner.j2",
-        #     reasoning_effort="high",
-        # ),
         "formatter": AiModel(
             name="qwen3.5:cloud",
             system_prompt_template="formatter.j2",
@@ -89,12 +109,23 @@ class Orchestrator:
         task_id: str,
         base_url: str = "http://127.0.0.1:11434/v1",
         api_key: str = "ollama",
+        rate_limit_delay: float = 3.0,
+        max_parallel_workers: int = 5,
     ) -> None:
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.output_dir = Path(output_dir)
-
         self.task_id = task_id
         self.log = logger.bind(task_id=self.task_id)
+
+        # Rate limiter для контроля частоты запросов
+        self.rate_limiter = RateLimiter(min_delay=rate_limit_delay)
+
+        # Thread pool для параллельного выполнения
+        self.executor = ThreadPoolExecutor(max_workers=max_parallel_workers)
+
+    def __del__(self):
+        """Освобождает ресурсы при уничтожении объекта."""
+        self.executor.shutdown(wait=False)
 
     @staticmethod
     def convert_raw_text_to_block(raw_text: str) -> DataBlock:
@@ -103,21 +134,9 @@ class Orchestrator:
         return DataBlock(description=description.strip(), content=content.strip())
 
     def parse_blocks(self, response_text: str) -> list[DataBlock]:
-        """
-        Извлекает блоки данных из ответа LLM.
-
-        Args:
-            response_text: Текст ответа от LLM с блоками формата ===BLOCK_START=== ... ===BLOCK_END===
-
-        Returns:
-            Список блоков
-        """
+        """Извлекает блоки данных из ответа LLM."""
         blocks = []
-
-        # Нормализуем окончания строк
         text = response_text.replace("\r\n", "\n").replace("\r", "\n")
-
-        # Находим все блоки по разделителям
         pattern = r"===BLOCK_START===\n(.*?)\n===BLOCK_END==="
         matches = re.finditer(pattern, text, re.DOTALL)
 
@@ -131,7 +150,6 @@ class Orchestrator:
 
             description = lines[0].strip()
             content = lines[1].strip()
-
             blocks.append(DataBlock(description=description, content=content))
 
         return blocks
@@ -143,11 +161,12 @@ class Orchestrator:
         is_json: bool = False,
         **kwargs,
     ) -> ChatCompletion:
-        """
-        Приватный метод для общей логики запроса
-        """
+        """Приватный метод для общей логики запроса."""
         if is_json:
             kwargs["response_format"] = {"type": "json_object"}
+
+        # Применяем rate limiting перед запросом
+        self.rate_limiter.acquire()
 
         start_time = time.time()
         try:
@@ -159,7 +178,7 @@ class Orchestrator:
                 timeout=TIMEOUT_LLM,
                 **kwargs,
             )
-        except InternalServerError as ex:
+        except Exception as ex:
             duration = time.time() - start_time
             self.log.exception(
                 "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
@@ -176,53 +195,86 @@ class Orchestrator:
         return response
 
     def run_agent(self, model: AiModel, messages: list[dict], **kwargs) -> str | None:
-        """
-        Возвращает текстовый ответ от LLM
-        """
+        """Возвращает текстовый ответ от LLM."""
         try:
             response = self._execute_request(model=model, messages=messages, **kwargs)
-        except:
+        except Exception as ex:
+            self.log.exception("llm_request_error", error=str(ex))
             return None
 
         answer = response.choices[0].message.content
         if answer is None:
-            self.log.exception("Ответ пустой")
+            self.log.warning("Ответ пустой")
 
         return answer
 
-    def _documents_summirize(self, docs: list[Document]) -> list[DataBlock]:
+    def _analyze_single_document(self, doc: Document) -> list[DataBlock]:
+        """Анализирует один документ (вызывается в отдельном потоке)."""
         model = self.MODELS_ROLES["document_analyst"]
-
         full_system_prompt = model.render_system_prompt()
         system_message = {"role": "system", "content": full_system_prompt}
+        doc_prompt = f"Документ:\n{doc.content}"
 
-        blocks: list[DataBlock] = []
-        for doc in docs:
-            doc_prompt = f"Документ:\n{doc.content}"
+        messages = [
+            system_message,
+            {"role": "user", "content": doc_prompt},
+        ]
 
-            messages = [
-                system_message,
-                {"role": "user", "content": doc_prompt},
-            ]
-            self.log.debug(
-                "calling_document_analyst",
-                doc_path=doc.filepath,
-                prompt_len=len(full_system_prompt) + len(doc_prompt),
-            )
+        self.log.debug(
+            "calling_document_analyst",
+            doc_path=doc.filepath,
+            prompt_len=len(full_system_prompt) + len(doc_prompt),
+        )
 
-            response = self.run_agent(model, messages)
-            if not response:
-                continue
+        response = self.run_agent(model, messages)
+        if not response:
+            self.log.warning("document_analysis_failed", doc_path=doc.filepath)
+            return []
 
-            doc_blocks = self.parse_blocks(response)
-            blocks.extend(doc_blocks)
+        doc_blocks = self.parse_blocks(response)
+        self.log.info(
+            "document_analyzed",
+            doc_path=doc.filepath,
+            blocks_count=len(doc_blocks),
+        )
+        return doc_blocks
 
-        self.log.info("documents_summarized", blocks_count=len(blocks))
-        return blocks
+    def _documents_summarize(self, docs: list[Document]) -> list[DataBlock]:
+        """
+        Параллельно анализирует все документы.
+        Каждый документ обрабатывается в отдельном потоке с rate limiting.
+        """
+        if not docs:
+            return []
+
+        self.log.info("documents_summarize_start", docs_count=len(docs))
+        all_blocks: list[DataBlock] = []
+
+        # Создаём задачи для каждого документа
+        futures = {
+            self.executor.submit(self._analyze_single_document, doc): doc
+            for doc in docs
+        }
+
+        # Собираем результаты по мере завершения
+        for future in as_completed(futures):
+            doc = futures[future]
+            try:
+                blocks = future.result()
+                all_blocks.extend(blocks)
+            except Exception as ex:
+                self.log.exception(
+                    "document_analysis_exception",
+                    doc_path=doc.filepath,
+                    error=str(ex),
+                )
+
+        self.log.info("documents_summarized", blocks_count=len(all_blocks))
+        return all_blocks
 
     def _template_specs_extract(self, template: Document) -> DataBlock:
+        """Извлекает спецификации из шаблона."""
         model = self.MODELS_ROLES["template_analyst"]
-
         full_system_prompt = model.render_system_prompt()
         template_prompt = f"Документ:\n{template.content}"
         messages = [
@@ -239,7 +291,7 @@ class Orchestrator:
         content = self.run_agent(model, messages)
         if not content:
             self.log.critical("template_specs_extracted_failed")
-            raise
+            raise RuntimeError("Не удалось извлечь спецификации шаблона")
 
         self.log.info("template_specs_extracted", content_len=len(content))
         return DataBlock(
@@ -248,6 +300,7 @@ class Orchestrator:
         )
 
     def _user_prompt_data_extract(self, user_prompt: str) -> list[DataBlock]:
+        """Извлекает данные из пользовательского промпта."""
         model = self.MODELS_ROLES["user_prompt_analyst"]
 
         full_system_prompt = model.render_system_prompt()
@@ -267,37 +320,84 @@ class Orchestrator:
             return []
 
         blocks = self.parse_blocks(response)
-
         self.log.info("user_prompt_analyzed", blocks_count=len(blocks))
         return blocks
 
     def fill_data_blocks_registry(self, state: StateAgents):
         """
-        Функция для создания блоков данных через LLM
+        Параллельно запускает 3 задачи анализа:
+        1. Анализ документов (параллельно по каждому документу)
+        2. Анализ шаблона
+        3. Анализ user prompt
+
+        Затем объединяет результаты в registry.
         """
         self.log.info("fill_data_blocks_registry_start")
         dbr = state.data_blocks_registry
 
-        if state.template:
-            try:
-                template_data_block = self._template_specs_extract(state.template)
-                dbr.add_block(template_data_block)
-            except:
-                self.log.exception("fill_exception")
+        # Создаём задачи для параллельного выполнения
+        analysis_tasks: list[tuple[str, Future]] = []
 
-        docs_summirized_blocks = self._documents_summirize(state.documents)
-        for block in docs_summirized_blocks:
+        # Задача анализа документов
+        if state.documents:
+            _docs_future = self.executor.submit(
+                self._documents_summarize, state.documents
+            )
+            analysis_tasks.append(("documents", _docs_future))
+
+        # Задача анализа шаблона
+        if state.template:
+            _temp_future = self.executor.submit(
+                self._template_specs_extract, state.template
+            )
+            analysis_tasks.append(("template", _temp_future))
+
+        # Задача анализа user prompt
+        _user_prompt_future = self.executor.submit(
+            self._user_prompt_data_extract, state.user_prompt
+        )
+        analysis_tasks.append(("user_prompt", _user_prompt_future))
+
+        # Собираем результаты
+        doc_blocks: list[DataBlock] = []
+        template_block: DataBlock | None = None
+        user_blocks: list[DataBlock] = []
+
+        for task_name, future in analysis_tasks:
+            try:
+                result = future.result()  # Ждём завершения задачи
+
+                if task_name == "documents":
+                    doc_blocks = result
+                elif task_name == "template":
+                    template_block = result
+                elif task_name == "user_prompt":
+                    user_blocks = result
+
+                self.log.info("analysis_task_completed", task_name=task_name)
+
+            except Exception as ex:
+                self.log.exception(
+                    "analysis_task_failed",
+                    task_name=task_name,
+                    error=str(ex),
+                )
+                # Продолжаем выполнение, даже если одна задача упала
+
+        # Добавляем блоки в registry
+        if template_block:
+            dbr.add_block(template_block)
+
+        for block in doc_blocks:
             dbr.add_block(block)
 
-        user_data_blocks = self._user_prompt_data_extract(state.user_prompt)
-
-        for block in user_data_blocks:
-            if block.description == "user_prompt":
+        for i, block in enumerate(user_blocks):
+            if block.description == "user_prompt" or i == len(user_blocks) - 1:
                 state.user_prompt_cleaned = block.content
                 continue
-
             dbr.add_block(block)
 
+        # Сохраняем registry
         data_blocks_path = self.output_dir / "data_blocks.json"
         dbr.save(data_blocks_path)
         self.log.info(
@@ -307,13 +407,10 @@ class Orchestrator:
         )
 
     def formatter_agent(self, state: StateAgents) -> str:
-        """
-        Формирует финальный markdown отчёт с использованием Chain-of-Thought и tools.
-        """
+        """Формирует финальный markdown отчёт с использованием Chain-of-Thought и tools."""
         model = self.MODELS_ROLES["formatter"]
         dbr = state.data_blocks_registry
 
-        # Формируем контекст блоков для промпта
         blocks_context = dbr.get_blocks_context()
         images_context = "\n".join(
             [f"- {img.description}: {img.filepath}" for img in state.images]
@@ -337,7 +434,6 @@ class Orchestrator:
             report = "\n".join(report_parts)
             state.report_markdown = report
             log = getattr(self.log, log_method)
-
             log(
                 log_event,
                 report_len=len(report),
@@ -345,15 +441,37 @@ class Orchestrator:
             )
             return report
 
-        # Цикл работы с tools
+        def exec_func(func_name: str, func_args: dict) -> dict[str, str]:
+            if func_name == "read_block":
+                block_id = func_args.get("block_id")
+                if not block_id:
+                    return {
+                        "error": "read_block tool принимает 1 аргумент - block_id: int"
+                    }
+
+                if not block_id.isdigit():
+                    return {"error": "block_id должен быть типом int"}
+
+                block_content = dbr.read_block(int(block_id))
+                if not block_content:
+                    return {"error": f"Блок '{block_id}' не найден"}
+
+                return {"content_block": block_content}
+
+            return {"error": f"Неизвестный tool: {func_name}"}
+
         while state.iteration < state.max_iterations:
             state.iteration += 1
 
-            response = self._execute_request(
-                model=model,
-                messages=messages,
-                tools=FORMATTER_TOOLS,
-            )
+            try:
+                response = self._execute_request(
+                    model=model,
+                    messages=messages,
+                    tools=FORMATTER_TOOLS,
+                )
+            except Exception as ex:
+                self.log.exception("formatter_exception")
+                continue
 
             message = response.choices[0].message
             model_extra = message.model_extra
@@ -361,25 +479,20 @@ class Orchestrator:
             if model_extra:
                 reasoning = model_extra.get("reasoning")
                 if reasoning:
-                    reasoning_clean = reasoning.strip().replace("\n", " ")
-
+                    reasoning_clean = reasoning.strip().replace("\n", "  ")
                     self.log.info("reasoning_llm", reasoning=reasoning_clean)
 
-            # Проверяем, есть ли вызовы tools
             tool_calls = message.tool_calls
-
             messages.append(message.model_dump())
 
             if not tool_calls:
-                # Если нет tool calls, просто добавляем ответ
                 content = message.content
                 if content:
                     report_parts.append(content)
-
                 messages.append(
                     {
                         "role": "user",
-                        "content": "Продолжай или подверди окончание написания отчета, вызвав finish tool",
+                        "content": "Продолжай",
                     }
                 )
                 continue
@@ -397,54 +510,34 @@ class Orchestrator:
                     tool_args=func_args,
                 )
 
-                if func_name == "read_block":
-                    block_id = func_args.get("block_id")
-                    if block_id.isdigit():
-                        block_content = dbr.read_block(int(block_id))
-                        if block_content:
-                            tool_result = json.dumps(
-                                {"content_block": block_content},
-                                ensure_ascii=False,
-                            )
-                        else:
-                            tool_result = json.dumps(
-                                {"error": f"Блок '{block_id}' не найден"},
-                                ensure_ascii=False,
-                            )
-                    else:
-                        tool_result = json.dumps(
-                            {"error": "block_id должен быть типом int"},
-                            ensure_ascii=False,
-                        )
-                elif func_name == "finish":
-                    return finish("formatter_agent_done")
-                else:
-                    tool_result = json.dumps(
-                        {"error": f"Неизвестный tool: {func_name}"},
-                        ensure_ascii=False,
+                if func_name == "finish":
+                    self.log.info(
+                        "finish_requested",
+                        report_parts_count=len(report_parts),
+                        last_content_preview=(
+                            report_parts[-1][:200] if report_parts else None
+                        ),
                     )
+                    return finish("formatter_agent_done")
 
-                # Добавляем результат tool call в messages
+                tool_result = exec_func(func_name, func_args)
+                tool_result_json = json.dumps(tool_result, ensure_ascii=False)
+
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": tool_result,
+                        "content": tool_result_json,
                     }
                 )
 
-        # Если цикл завершился без finish
         return finish("formatter_agent_max_iterations", "warning")
 
     def run(self, state: StateAgents) -> StateAgents:
-        """
-        Основной цикл выполнения задачи.
-
-        Возвращает состояние с результатами работы всех агентов.
-        """
+        """Основной цикл выполнения задачи."""
         self.log.info("orchestrator_run_start")
-
         self.fill_data_blocks_registry(state)
+
         self.formatter_agent(state)
 
         state.finished = True
