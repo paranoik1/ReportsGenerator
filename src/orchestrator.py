@@ -488,11 +488,28 @@ class Orchestrator:
             if not tool_calls:
                 content = message.content
                 if content:
+                    content_preview = (
+                        content[:200] + "..." + content[-200:]
+                        if len(content) > 400
+                        else content
+                    )
+                    self.log.debug(
+                        "write_part_report",
+                        content_len=len(content),
+                        content_preview=content_preview,
+                    )
                     report_parts.append(content)
+                    message_content = "Продолжай"
+                else:
+                    self.log.warning("empty_message_received")
+                    message_content = (
+                        "Было получено пустое сообщение. Продолжай писать отчет"
+                    )
+
                 messages.append(
                     {
                         "role": "user",
-                        "content": "Продолжай",
+                        "content": message_content,
                     }
                 )
                 continue
