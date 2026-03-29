@@ -1,4 +1,6 @@
 import subprocess
+import time
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -12,6 +14,7 @@ from pypdf import PdfReader
 from utils.data_block_registry import DataBlocksRegistry
 
 FilePath = str | Path
+TaskStatus = Literal["queued", "processing", "done", "error"]
 
 
 logger = structlog.get_logger(__name__)
@@ -141,9 +144,24 @@ class StateAgents:
     images: list[ImageDocument] = field(default_factory=list)
 
 
-if __name__ == "__main__":
-    doc = Document(
-        "uploads/18ebf7db-284a-4f2a-b9a3-aed1ff5f0c10/template_10.test.docx",
-        extractor="soffice",
-    )
-    print(doc.content)
+@dataclass
+class Task:
+    """Задача на генерацию отчёта."""
+
+    task_id: str
+    upload_dir: str
+    tmp_dir: str
+    status: TaskStatus = "queued"
+    user_prompt: str = ""
+    file_paths: list[str] = field(default_factory=list)
+    template_path: str | None = None
+    images: list[tuple[str, str]] = field(default_factory=list)
+
+    state: StateAgents | None = None
+    error: str | None = None
+    created_at: float = field(default_factory=time.time)
+    started_at: float | None = None
+    completed_at: float | None = None
+
+    _future: Future | None = None
+    _worker_thread: str | None = None

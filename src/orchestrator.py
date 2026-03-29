@@ -5,10 +5,10 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import structlog
-from openai import InternalServerError, OpenAI
+from openai import OpenAI
 from openai.types import ReasoningEffort
 from openai.types.chat.chat_completion import ChatCompletion
 
@@ -336,43 +336,49 @@ class Orchestrator:
         dbr = state.data_blocks_registry
 
         # Создаём задачи для параллельного выполнения
-        analysis_tasks: list[tuple[str, Future]] = []
+        futures: list[Future] = []
+
+        def run_future(task_name: str, func: Callable, *args, **kwargs):
+            """
+            Функция для запуска в пуле, которая возвращает наименование задачи и результат ее работы
+            """
+            return task_name, func(*args, **kwargs)
 
         # Задача анализа документов
         if state.documents:
             _docs_future = self.executor.submit(
-                self._documents_summarize, state.documents
+                run_future, "documents", self._documents_summarize, state.documents
             )
-            analysis_tasks.append(("documents", _docs_future))
+            futures.append(_docs_future)
 
         # Задача анализа шаблона
         if state.template:
             _temp_future = self.executor.submit(
-                self._template_specs_extract, state.template
+                run_future, "template", self._template_specs_extract, state.template
             )
-            analysis_tasks.append(("template", _temp_future))
+            futures.append(_temp_future)
 
         # Задача анализа user prompt
         _user_prompt_future = self.executor.submit(
-            self._user_prompt_data_extract, state.user_prompt
+            run_future, "user_prompt", self._user_prompt_data_extract, state.user_prompt
         )
-        analysis_tasks.append(("user_prompt", _user_prompt_future))
+        futures.append(_user_prompt_future)
 
-        # Собираем результаты
-        doc_blocks: list[DataBlock] = []
-        template_block: DataBlock | None = None
-        user_blocks: list[DataBlock] = []
-
-        for task_name, future in analysis_tasks:
+        for future in as_completed(futures):
             try:
-                result = future.result()  # Ждём завершения задачи
+                task_name, result = future.result()
 
                 if task_name == "documents":
-                    doc_blocks = result
+                    for block in result:
+                        dbr.add_block(block)
                 elif task_name == "template":
-                    template_block = result
+                    dbr.add_block(result)
                 elif task_name == "user_prompt":
-                    user_blocks = result
+                    for i, block in enumerate(result):
+                        if block.description == "user_prompt" or i == len(result) - 1:
+                            state.user_prompt_cleaned = block.content
+                            continue
+                        dbr.add_block(block)
 
                 self.log.info("analysis_task_completed", task_name=task_name)
 
@@ -382,20 +388,6 @@ class Orchestrator:
                     task_name=task_name,
                     error=str(ex),
                 )
-                # Продолжаем выполнение, даже если одна задача упала
-
-        # Добавляем блоки в registry
-        if template_block:
-            dbr.add_block(template_block)
-
-        for block in doc_blocks:
-            dbr.add_block(block)
-
-        for i, block in enumerate(user_blocks):
-            if block.description == "user_prompt" or i == len(user_blocks) - 1:
-                state.user_prompt_cleaned = block.content
-                continue
-            dbr.add_block(block)
 
         # Сохраняем registry
         data_blocks_path = self.output_dir / "data_blocks.json"

@@ -1,14 +1,13 @@
 import os
-import threading
-import time
 import uuid
-from dataclasses import dataclass, field
 
 import structlog
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from report_generator import ReportGenerator, StateAgents
+from models import Task
+from storage import SQLiteTaskStorage
+from tasks import TaskWorkerPool
 from utils.log import setup_logging
 
 UPLOAD_DIR = "uploads"
@@ -20,31 +19,11 @@ os.makedirs(TMP_DIR, exist_ok=True)
 setup_logging()
 
 app = Flask(__name__)
-
-
-@dataclass
-class Task:
-    """Задача на генерацию отчёта."""
-
-    task_id: str
-    upload_dir: str
-    tmp_dir: str
-
-    status: str = "queued"
-    user_prompt: str = ""
-
-    file_paths: list[str] = field(default_factory=list)
-    template_path: str | None = None
-
-    # Состояние генерации отчета
-    state: StateAgents | None = None
-
-    error: str | None = None
-
-
-tasks: dict[str, Task] = {}
-
 logger = structlog.get_logger("ai_service")
+
+
+task_storage = SQLiteTaskStorage()
+worker_pool = TaskWorkerPool(task_storage)
 
 
 def create_task_dirs(task_id: str) -> tuple[str, str]:
@@ -56,56 +35,6 @@ def create_task_dirs(task_id: str) -> tuple[str, str]:
     return task_upload_dir, task_tmp_dir
 
 
-# ---------- BACKGROUND JOB ----------
-
-
-def background_task(task: Task, images: list[tuple[str, str]]):
-    """Фоновая задача генерации отчета."""
-    start_time = time.time()
-
-    log = logger.bind(
-        task_id=task.task_id,
-        worker_pid=os.getpid(),
-        worker_thread=threading.current_thread().name,
-    )
-    log.info("task_started", files_count=len(task.file_paths), images_count=len(images))
-
-    report_generator = ReportGenerator()
-
-    try:
-        state = report_generator.generate_report(
-            user_prompt=task.user_prompt,
-            file_paths=task.file_paths,
-            template_path=task.template_path,
-            images=images,
-            task_id=task.task_id,
-            output_dir=task.tmp_dir,
-        )
-
-        task.state = state
-        task.status = "done"
-
-        duration = time.time() - start_time
-
-        log.info(
-            "task_completed",
-            duration_sec=round(duration, 2),
-            result_path=state.report_docx_path,
-            status="success",
-        )
-    except Exception as e:
-        duration = time.time() - start_time
-
-        log.exception(
-            "task_failed",
-            duration_sec=round(duration, 2),
-            error_type=type(e).__name__,
-            error_msg=str(e),
-            status="error",
-        )
-        raise
-
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -114,8 +43,6 @@ def index():
 @app.route("/start", methods=["POST"])
 def start():
     task_id = str(uuid.uuid4())
-
-    # Создаём директории для задачи
     task_upload_dir, task_tmp_dir = create_task_dirs(task_id)
 
     user_prompt = request.form.get("prompt", "")
@@ -153,13 +80,16 @@ def start():
 
     task = Task(
         task_id=task_id,
+        upload_dir=task_upload_dir,
+        tmp_dir=task_tmp_dir,
         user_prompt=user_prompt,
         file_paths=saved_paths,
         template_path=template_path,
-        tmp_dir=task_tmp_dir,
-        upload_dir=task_upload_dir,
+        images=images,
     )
-    tasks[task_id] = task
+
+    # Отправляем задачу в пул воркеров
+    worker_pool.submit_task(task)
 
     logger.info(
         "task_queued",
@@ -168,21 +98,21 @@ def start():
         images_count=len(images),
     )
 
-    thread = threading.Thread(target=background_task, args=(task, images))
-    thread.start()
-
     return jsonify({"task_id": task_id})
 
 
 @app.route("/status/<task_id>")
 def status(task_id):
-    task = tasks.get(task_id)
+    task = task_storage.get_task(task_id)
 
     if not task:
         return jsonify({"status": "unknown"})
 
     response = {
         "status": task.status,
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "completed_at": task.completed_at,
     }
 
     if task.status == "done" and task.state:
@@ -195,10 +125,29 @@ def status(task_id):
     return jsonify(response)
 
 
+@app.route("/tasks")
+def list_tasks():
+    """Список всех задач."""
+    tasks = task_storage.get_all_tasks()
+    return jsonify(
+        [
+            {
+                "task_id": t.task_id,
+                "status": t.status,
+                "created_at": t.created_at,
+                "started_at": t.started_at,
+                "completed_at": t.completed_at,
+                "error": t.error,
+            }
+            for t in tasks
+        ]
+    )
+
+
 @app.route("/view_html/<task_id>")
 def view_html(task_id):
     """Просмотр HTML версии отчёта."""
-    task = tasks.get(task_id)
+    task = task_storage.get_task(task_id)
     if task and task.state and task.state.report_html_path:
         return send_file(task.state.report_html_path, mimetype="text/html")
     return jsonify({"error": "HTML not found"}), 404
@@ -207,7 +156,7 @@ def view_html(task_id):
 @app.route("/download/<task_id>")
 def download(task_id):
     """Скачивание DOCX файла."""
-    task = tasks.get(task_id)
+    task = task_storage.get_task(task_id)
     if task and task.state and task.state.report_docx_path:
         return send_file(
             task.state.report_docx_path,
@@ -218,5 +167,23 @@ def download(task_id):
     return jsonify({"error": "File not found"}), 404
 
 
+def on_start():
+    """Вызывается при старте приложения."""
+    logger.info("application_starting")
+    # Восстанавливаем задачи из БД (опционально)
+    worker_pool.restore_queued_tasks()
+
+
+def on_shutdown():
+    """Вызывается при остановке приложения."""
+    logger.info("application_shutting_down")
+    worker_pool.shutdown(wait=False)
+
+
+import atexit
+
+atexit.register(on_shutdown)
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    on_start()
+    app.run(debug=True, threaded=True)
