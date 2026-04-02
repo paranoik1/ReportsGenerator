@@ -39,6 +39,25 @@ FORMATTER_TOOLS = [
         },
     },
     {"type": "function", "name": "finish", "description": "Завершает работу"},
+    {
+        "type": "function",
+        "name": "write_section",
+        "description": "Сохраняет часть отчёта и сигнализирует о прогрессе. section_name — опциональная подсказка для логирования.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Содержимое раздела(ов) в упрощённом Markdown",
+                },
+                "section_name": {
+                    "type": "string",
+                    "description": "Опционально: название раздела(ов) для логирования, например 'Введение' или 'Ход выполнения: часть 1'",
+                },
+            },
+            "required": ["content"],  # section_name — опционален
+        },
+    },
 ]
 
 TIMEOUT_LLM = 5 * 60
