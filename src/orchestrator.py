@@ -481,7 +481,7 @@ class Orchestrator:
                 content = message.content
                 if content:
                     content_preview = (
-                        content[:200] + "..." + content[-200:]
+                        content[:200] + "...[!TRUNCATED!]..." + content[-200:]
                         if len(content) > 400
                         else content
                     )
@@ -527,9 +527,16 @@ class Orchestrator:
                             report_parts[-1][:200] if report_parts else None
                         ),
                     )
-                    return finish("formatter_agent_done")
 
-                tool_result = exec_func(func_name, func_args)
+                    if len(report_parts) == 0:
+                        tool_result = {
+                            "error": "Нельзя вызывать finish tool до тех пор, пока длина отчета равна 0 (не начился писаться)"
+                        }
+                    else:
+                        return finish("formatter_agent_done")
+                else:
+                    tool_result = exec_func(func_name, func_args)
+
                 tool_result_json = json.dumps(tool_result, ensure_ascii=False)
 
                 messages.append(

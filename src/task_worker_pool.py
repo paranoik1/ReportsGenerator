@@ -22,7 +22,7 @@ class TaskWorkerPool:
     def __init__(self, storage: "TaskStorage", max_workers: int = MAX_WORKERS):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.storage = storage
-        self._log = structlog.get_logger("task_worker_pool")
+        self._log = structlog.get_logger(__name__)
 
     def submit_task(self, task: "Task") -> Future:
         """Отправляет задачу в пул."""

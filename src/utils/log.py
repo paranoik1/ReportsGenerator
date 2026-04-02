@@ -25,59 +25,71 @@ class IncludeOnlyFilter(logging.Filter):
         return any(record.name.startswith(name) for name in self.include_names)
 
 
-def setup_logging(log_file: str = "events.jsonl"):
+def setup_logging(
+    json_log_file: str = "events.jsonl", journal_log_file: str = "journal.log"
+):
     os.makedirs(LOG_DIR, exist_ok=True)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-
-    # Обработчик для файла (JSON)
-    file_handler = logging.FileHandler(LOG_DIR / log_file, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    # file_handler.addFilter(ExcludeLoggerFilter(
-    #     "werkzeug",           # Flask/Werkzeug HTTP logs
-    #     "uvicorn.access",     # Uvicorn access logs
-    #     "urllib3",            # HTTP client logs
-    #     "boto3",              # AWS SDK logs
-    #     "openai"
-    # ))
-    file_handler.addFilter(
-        IncludeOnlyFilter("ai_service", "report_generator", "orchestrator")
+    include_filter = IncludeOnlyFilter(
+        "flask_service",
+        "report_generator",
+        "orchestrator",
+        "utils",
+        "task_worker_pool",
+        "models",
+        "werkzeug",
     )
+
+    # Хендлер для json логов в файл
+    file_handler = logging.FileHandler(LOG_DIR / json_log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.addFilter(include_filter)
+
+    foreign_pre_chain = [
+        structlog.stdlib.ExtraAdder(),
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+    ]
 
     # Используем встроенный JSONRenderer от structlog
     file_formatter = structlog.stdlib.ProcessorFormatter(
-        processor=structlog.processors.JSONRenderer(),
-        foreign_pre_chain=[
-            structlog.stdlib.ExtraAdder(),
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
-        ],
+        processor=structlog.processors.JSONRenderer(ensure_ascii=False),
+        foreign_pre_chain=foreign_pre_chain,  # type: ignore
     )
     file_handler.setFormatter(file_formatter)
 
-    # 3. Настраиваем formatter для консоли (Читаемый текст)
-    # ConsoleRenderer делает логи цветными и удобными для чтения
+    # Хендлер для вывода в консоль
+    console_handler = logging.StreamHandler()
+    # console_handler.setLevel(logging.DEBUG)
+
     console_formatter = structlog.stdlib.ProcessorFormatter(
         processor=structlog.dev.ConsoleRenderer(colors=True),
-        foreign_pre_chain=[
-            structlog.stdlib.ExtraAdder(),
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
-        ],
+        foreign_pre_chain=foreign_pre_chain,  # type: ignore
     )
+    console_handler.addFilter(include_filter)
     console_handler.setFormatter(console_formatter)
 
-    # 4. Создаем корневой логгер и добавляем обработчики
+    # Хендлеры для записи в файл (формат логов такой же, как и в консоле)
+    journal_handler = logging.FileHandler(LOG_DIR / journal_log_file)
+    # journal_handler.setLevel(logging.DEBUG)
+
+    journal_formatter = structlog.stdlib.ProcessorFormatter(
+        processor=structlog.dev.ConsoleRenderer(colors=False),
+        foreign_pre_chain=foreign_pre_chain,  # type: ignore
+    )
+    journal_handler.addFilter(include_filter)
+    journal_handler.setFormatter(journal_formatter)
+
+    # Создаем корневой логгер и добавляем хендлеры
     root_logger = logging.getLogger()
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
+    root_logger.addHandler(journal_handler)
+
     root_logger.setLevel(logging.DEBUG)
 
-    # 5. Настраиваем сам structlog
+    # Настраиваем сам structlog
     structlog.configure(
         processors=[
-            # Контекст (time, level, event и т.д.)
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),

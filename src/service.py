@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from models import Task
 from storage import SQLiteTaskStorage
-from tasks import TaskWorkerPool
+from task_worker_pool import TaskWorkerPool
 from utils.log import setup_logging
 
 UPLOAD_DIR = "uploads"
@@ -19,7 +19,7 @@ os.makedirs(TMP_DIR, exist_ok=True)
 setup_logging()
 
 app = Flask(__name__)
-logger = structlog.get_logger("ai_service")
+logger = structlog.get_logger("flask_service")
 
 
 task_storage = SQLiteTaskStorage()
@@ -186,4 +186,4 @@ atexit.register(on_shutdown)
 
 if __name__ == "__main__":
     on_start()
-    app.run(debug=True, threaded=True)
+    app.run(debug=True, use_reloader=False, threaded=True)

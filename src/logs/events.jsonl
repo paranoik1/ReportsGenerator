@@ -1,2 +1,0 @@
-{"task_id": "f3ac85a7-74f9-42cd-901a-2acc8135d3fb", "files_count": 0, "images_count": 0, "event": "task_queued", "level": "info", "logger": "ai_service", "timestamp": "2026-03-23 16:41:04"}
-{"task_id": "f3ac85a7-74f9-42cd-901a-2acc8135d3fb", "worker_pid": 158189, "worker_thread": "Thread-15 (background_task)", "files_count": 0, "images_count": 0, "event": "task_started", "level": "info", "logger": "ai_service", "timestamp": "2026-03-23 16:41:04"}

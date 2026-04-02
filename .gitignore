@@ -6,3 +6,6 @@ __pycache__
 .env
 *.ipynb
 exp_*.py
+.idea
+tasks.db
+logs
