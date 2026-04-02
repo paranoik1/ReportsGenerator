@@ -114,7 +114,7 @@ class Document:
             raise ValueError(f"Unsupported file type: {ext}")
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ImageDocument:
     """Изображение с описанием от пользователя."""
 
@@ -129,6 +129,7 @@ class StateAgents:
     user_prompt_cleaned: str | None = None
 
     data_blocks_registry: DataBlocksRegistry = field(default_factory=DataBlocksRegistry)
+    report_parts: list[str] = field(default_factory=list)
     report_markdown: str | None = None
 
     report_markdown_path: str | None = None
