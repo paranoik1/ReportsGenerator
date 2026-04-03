@@ -5,16 +5,13 @@ import structlog
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
+from config import get_settings
 from models import Task
 from storage import SQLiteTaskStorage
 from task_worker_pool import TaskWorkerPool
 from utils.log import setup_logging
 
-UPLOAD_DIR = "uploads"
-TMP_DIR = "tmp"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(TMP_DIR, exist_ok=True)
+settings = get_settings()
 
 setup_logging()
 
@@ -22,14 +19,14 @@ app = Flask(__name__)
 logger = structlog.get_logger("flask_service")
 
 
-task_storage = SQLiteTaskStorage()
+task_storage = SQLiteTaskStorage(db_path=str(settings.database_path))
 worker_pool = TaskWorkerPool(task_storage)
 
 
 def create_task_dirs(task_id: str) -> tuple[str, str]:
     """Создаёт директории для задачи и возвращает пути к ним."""
-    task_upload_dir = os.path.join(UPLOAD_DIR, task_id)
-    task_tmp_dir = os.path.join(TMP_DIR, task_id)
+    task_upload_dir = str(settings.upload_dir / task_id)
+    task_tmp_dir = str(settings.tmp_dir / task_id)
     os.makedirs(task_upload_dir, exist_ok=True)
     os.makedirs(task_tmp_dir, exist_ok=True)
     return task_upload_dir, task_tmp_dir
@@ -186,4 +183,10 @@ atexit.register(on_shutdown)
 
 if __name__ == "__main__":
     on_start()
-    app.run(debug=True, use_reloader=False, threaded=True)
+    app.run(
+        debug=settings.flask_debug,
+        host=settings.flask_host,
+        port=settings.flask_port,
+        use_reloader=False,
+        threaded=True,
+    )

@@ -9,3 +9,4 @@ exp_*.py
 .idea
 tasks.db
 logs
+.qwen

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from config import get_settings
 from report_generator import ReportGenerator
 
 if TYPE_CHECKING:
@@ -13,14 +14,14 @@ if TYPE_CHECKING:
     from storage import TaskStorage
 
 
-MAX_WORKERS = 5  # Максимум одновременных задач
-
-
 class TaskWorkerPool:
     """Пул воркеров для выполнения задач."""
 
-    def __init__(self, storage: "TaskStorage", max_workers: int = MAX_WORKERS):
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+    def __init__(self, storage: "TaskStorage", max_workers: int | None = None):
+        settings = get_settings()
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers or settings.max_workers
+        )
         self.storage = storage
         self._log = structlog.get_logger(__name__)
 

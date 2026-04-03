@@ -3,9 +3,10 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any
 
+from config import get_settings
 from models import Task
 
-DATABASE_PATH = "tasks.db"
+DATABASE_PATH = str(get_settings().database_path)
 
 
 class TaskStorage(ABC):

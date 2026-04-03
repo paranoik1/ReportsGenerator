@@ -4,7 +4,7 @@ from pathlib import Path
 
 import structlog
 
-LOG_DIR = Path("logs")
+from config import get_settings
 
 
 class ExcludeLoggerFilter(logging.Filter):
@@ -27,8 +27,10 @@ class IncludeOnlyFilter(logging.Filter):
 
 def setup_logging(
     json_log_file: str = "events.jsonl", journal_log_file: str = "journal.log"
-):
-    os.makedirs(LOG_DIR, exist_ok=True)
+) -> None:
+    settings = get_settings()
+    log_dir = settings.log_dir
+    os.makedirs(log_dir, exist_ok=True)
     include_filter = IncludeOnlyFilter(
         "flask_service",
         "report_generator",
@@ -40,7 +42,7 @@ def setup_logging(
     )
 
     # Хендлер для json логов в файл
-    file_handler = logging.FileHandler(LOG_DIR / json_log_file, encoding="utf-8")
+    file_handler = logging.FileHandler(log_dir / json_log_file, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.addFilter(include_filter)
 
@@ -69,7 +71,7 @@ def setup_logging(
     console_handler.setFormatter(console_formatter)
 
     # Хендлеры для записи в файл (формат логов такой же, как и в консоле)
-    journal_handler = logging.FileHandler(LOG_DIR / journal_log_file)
+    journal_handler = logging.FileHandler(log_dir / journal_log_file)
     # journal_handler.setLevel(logging.DEBUG)
 
     journal_formatter = structlog.stdlib.ProcessorFormatter(
