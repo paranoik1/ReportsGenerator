@@ -1,5 +1,6 @@
 import os
 import uuid
+from pathlib import Path
 
 import structlog
 from flask import Flask, jsonify, render_template, request, send_file
@@ -145,8 +146,10 @@ def list_tasks():
 def view_html(task_id):
     """Просмотр HTML версии отчёта."""
     task = task_storage.get_task(task_id)
-    if task and task.state and task.state.report_html_path:
-        return send_file(task.state.report_html_path, mimetype="text/html")
+    # FIXME: task_storage не сохраняет AgentsState в базе
+    # if task and task.state and task.state.report_html_path:
+    if task and task.status == "done":
+        return send_file(Path(task.tmp_dir) / f"{task_id}.html", mimetype="text/html")
     return jsonify({"error": "HTML not found"}), 404
 
 
@@ -154,9 +157,11 @@ def view_html(task_id):
 def download(task_id):
     """Скачивание DOCX файла."""
     task = task_storage.get_task(task_id)
-    if task and task.state and task.state.report_docx_path:
+    # FIXME: task_storage не сохраняет AgentsState в базе
+    # if task and task.state and task.state.report_docx_path:
+    if task and task.status == "done":
         return send_file(
-            task.state.report_docx_path,
+            Path(task.tmp_dir) / f"{task_id}.docx",
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             as_attachment=True,
             download_name=f"report_{task_id[:8]}.docx",

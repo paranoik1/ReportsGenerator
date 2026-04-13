@@ -1,5 +1,6 @@
 """Централизованная конфигурация приложения через pydantic-settings."""
 
+import threading
 from pathlib import Path
 from typing import Self
 
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
         description="Базовый URL LLM API (OpenAI-compatible)",
     )
     llm_api_key: str = Field(default="ollama", description="API ключ для LLM")
-    llm_timeout: int = Field(default=300, description="Таймаут запроса к LLM (секунды)")
+    llm_timeout: int = Field(default=20, description="Таймаут запроса к LLM (секунды)")
 
     # === Rate Limiting ===
     rate_limit_delay: float = Field(
@@ -69,7 +70,7 @@ class Settings(BaseSettings):
 
     # === Flask ===
     flask_debug: bool = Field(default=True, description="Режим отладки Flask")
-    flask_host: str = Field(default="0.0.0.0", description="Хост Flask сервера")
+    flask_host: str = Field(default="127.0.0.1", description="Хост Flask сервера")
     flask_port: int = Field(default=5000, description="Порт Flask сервера")
 
     def ensure_dirs(self) -> Self:
@@ -81,6 +82,7 @@ class Settings(BaseSettings):
 
 # Синглтон-инстанс настроек
 _settings: Settings | None = None
+_settings_lock = threading.Lock()
 
 
 def get_settings() -> Settings:
@@ -92,7 +94,10 @@ def get_settings() -> Settings:
     """
     global _settings
     if _settings is None:
-        _settings = Settings().ensure_dirs()
+        with _settings_lock:
+            if _settings is None:
+                _settings = Settings().ensure_dirs()
+
     return _settings
 
 

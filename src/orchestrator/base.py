@@ -94,12 +94,12 @@ class BaseOrchestrator:
                 timeout=self.settings.llm_timeout,
                 **kwargs,
             )
-        except Exception as ex:
+        except:
             duration = time.time() - start_time
             self.log.exception(
                 "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
             )
-            raise ex
+            raise
 
         duration = time.time() - start_time
         self.log.debug(
@@ -118,6 +118,10 @@ class BaseOrchestrator:
             response = self._execute_request(model=model, messages=messages, **kwargs)
         except Exception as ex:
             self.log.exception("llm_request_error", error=str(ex))
+            return None
+
+        if not response.choices:
+            self.log.warning("empty_choices_response")
             return None
 
         answer = response.choices[0].message.content

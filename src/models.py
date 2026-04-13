@@ -19,6 +19,24 @@ TaskStatus = Literal["queued", "processing", "done", "error"]
 
 logger = structlog.get_logger(__name__)
 
+SUPPORTED_TEXT_EXTENSIONS = [
+    ".txt",
+    ".md",
+    ".html",
+    ".py",
+    ".sql",
+    ".css",
+    ".js",
+    ".cs",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".log",
+    ".json",
+    "jsonl",
+    ".csv",
+]
+
 
 @dataclass
 class Document:
@@ -106,7 +124,7 @@ class Document:
                 "markdown-simple_tables-grid_tables-multiline_tables-link_attributes-raw_html",
             )
 
-        elif ext in [".txt", ".md", ".html"]:
+        elif ext in SUPPORTED_TEXT_EXTENSIONS:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 return f.read()
 

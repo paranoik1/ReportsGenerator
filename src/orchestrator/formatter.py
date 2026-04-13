@@ -4,13 +4,12 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from openai.types.chat.chat_completion import ChatCompletion
 
 from orchestrator.tools import FORMATTER_TOOLS
 from utils.data_block_registry import DataBlocksRegistry
 
 if TYPE_CHECKING:
-    from openai.types import ChatCompletion
+    from openai.types.chat.chat_completion import ChatCompletion
     from structlog import BoundLogger
 
     from models import StateAgents
@@ -97,9 +96,6 @@ class FormatterMixin:
         if block_id is None:
             return {"error": "read_block tool принимает 1 аргумент - block_id: int"}
 
-        if isinstance(block_id, str) and not block_id.isdigit():
-            return {"error": "block_id должен быть типом int"}
-
         try:
             block_id_int = int(block_id)
         except (ValueError, TypeError):
@@ -151,7 +147,10 @@ class FormatterMixin:
             }
 
         func_name = tool_call.function.name
-        func_args = json.loads(tool_call.function.arguments)
+        try:
+            func_args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            return False, {"error": f"Невалидный JSON аргументов"}
 
         self.log.debug("tool_call", tool_name=func_name, tool_args=func_args)
 
@@ -178,7 +177,7 @@ class FormatterMixin:
         state: "StateAgents",
         messages: list[dict],
         report_parts: list[str],
-        response: ChatCompletion,
+        response: "ChatCompletion",
     ) -> bool:
         """
         Обрабатывает ответ от LLM: логирует reasoning, извлекает tool calls,
@@ -274,8 +273,6 @@ class FormatterMixin:
 
         # Основной цикл генерации
         while state.iteration < state.max_iterations:
-            state.iteration += 1
-
             try:
                 response = self._execute_request(
                     model=model,
@@ -285,6 +282,8 @@ class FormatterMixin:
             except Exception as ex:
                 self.log.exception("formatter_exception")
                 continue
+
+            state.iteration += 1
 
             # Обработка ответа LLM
             is_finished = self._process_llm_response(

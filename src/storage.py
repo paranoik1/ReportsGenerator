@@ -6,8 +6,6 @@ from typing import Any
 from config import get_settings
 from models import Task
 
-DATABASE_PATH = str(get_settings().database_path)
-
 
 class TaskStorage(ABC):
     @abstractmethod
@@ -26,8 +24,8 @@ class TaskStorage(ABC):
 class SQLiteTaskStorage(TaskStorage):
     """Персистентное хранилище задач в SQLite."""
 
-    def __init__(self, db_path: str = DATABASE_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or get_settings().database_path
         self._init_db()
 
     def _init_db(self):
