@@ -7,7 +7,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
 from config import get_settings
-from models import Task
+from models import AgentConfigs, AgentModelConfig, Task
 from storage import SQLiteTaskStorage
 from task_worker_pool import TaskWorkerPool
 from utils.log import setup_logging
@@ -76,6 +76,43 @@ def start():
             images.append((path, description))
         idx += 1
 
+    # Парсинг конфигураций моделей AI
+    agent_configs = None
+    has_any_config = False
+
+    def parse_agent_config(prefix: str) -> AgentModelConfig:
+        model = request.form.get(f"model_{prefix}")
+        base_url = request.form.get(f"base_url_{prefix}")
+        api_key = request.form.get(f"api_key_{prefix}")
+        config = AgentModelConfig(
+            model=model.strip() if model else None,
+            base_url=base_url.strip() if base_url else None,
+            api_key=api_key.strip() if api_key else None,
+        )
+        return config
+
+    document_analyst_config = parse_agent_config("document_analyst")
+    template_analyst_config = parse_agent_config("template_analyst")
+    user_prompt_analyst_config = parse_agent_config("user_prompt_analyst")
+    formatter_config = parse_agent_config("formatter")
+
+    # Создаём AgentConfigs только если хотя бы одна конфигурация заполнена
+    if any(
+        [
+            document_analyst_config.is_configured(),
+            template_analyst_config.is_configured(),
+            user_prompt_analyst_config.is_configured(),
+            formatter_config.is_configured(),
+        ]
+    ):
+        agent_configs = AgentConfigs(
+            document_analyst=document_analyst_config,
+            template_analyst=template_analyst_config,
+            user_prompt_analyst=user_prompt_analyst_config,
+            formatter=formatter_config,
+        )
+        logger.info("custom_agent_configs_provided", task_id=task_id)
+
     task = Task(
         task_id=task_id,
         upload_dir=task_upload_dir,
@@ -84,6 +121,7 @@ def start():
         file_paths=saved_paths,
         template_path=template_path,
         images=images,
+        agent_configs=agent_configs,
     )
 
     # Отправляем задачу в пул воркеров

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from models import AgentConfigs, StateAgents
 from orchestrator.tools import FORMATTER_TOOLS
 from utils.data_block_registry import DataBlocksRegistry
 
@@ -12,7 +13,6 @@ if TYPE_CHECKING:
     from openai.types.chat.chat_completion import ChatCompletion
     from structlog import BoundLogger
 
-    from models import StateAgents
     from orchestrator.models import AiModel
 
 
@@ -263,6 +263,8 @@ class FormatterMixin:
         Returns:
             str: Сгенерированный markdown-отчёт
         """
+        from orchestrator.base import _create_client
+
         self.log.info("formatter_agent_start")
 
         model = self.MODELS_ROLES["formatter"]
@@ -271,12 +273,21 @@ class FormatterMixin:
             model, state, blocks_context, images_context
         )
 
+        # Получаем клиент с учётом пользовательской конфигурации
+        agent_configs: AgentConfigs | None = getattr(self, "_agent_configs", None)
+        formatter_config = None
+        if agent_configs:
+            formatter_config = getattr(agent_configs, "formatter", None)
+
+        client, _, _ = _create_client(formatter_config, self.settings)
+
         # Основной цикл генерации
         while state.iteration < state.max_iterations:
             try:
                 response = self._execute_request(
                     model=model,
                     messages=messages,
+                    client=client,
                     tools=FORMATTER_TOOLS,
                 )
             except Exception as ex:

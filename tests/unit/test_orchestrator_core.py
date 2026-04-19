@@ -1,4 +1,5 @@
 import pytest
+
 from src.orchestrator.base import BaseOrchestrator, DataBlock
 
 
@@ -7,7 +8,12 @@ from src.orchestrator.base import BaseOrchestrator, DataBlock
     [
         pytest.param(
             "===BLOCK_START===\nSQL скрипт создания таблиц\nCREATE TABLE users (id INT);\n===BLOCK_END===",
-            [DataBlock(description="SQL скрипт создания таблиц", content="CREATE TABLE users (id INT);")],
+            [
+                DataBlock(
+                    description="SQL скрипт создания таблиц",
+                    content="CREATE TABLE users (id INT);",
+                )
+            ],
             id="single_block",
         ),
         pytest.param(
@@ -20,7 +26,12 @@ from src.orchestrator.base import BaseOrchestrator, DataBlock
         ),
         pytest.param(
             "===BLOCK_START===\nМногострочный контент\nСтрока 1\nСтрока 2\nСтрока 3\n===BLOCK_END===",
-            [DataBlock(description="Многострочный контент", content="Строка 1\nСтрока 2\nСтрока 3")],
+            [
+                DataBlock(
+                    description="Многострочный контент",
+                    content="Строка 1\nСтрока 2\nСтрока 3",
+                )
+            ],
             id="multiline_content",
         ),
         pytest.param(
@@ -55,12 +66,21 @@ from src.orchestrator.base import BaseOrchestrator, DataBlock
         ),
         pytest.param(
             "===BLOCK_START===\nКод с пустыми строками\n\ndef foo():\n    pass\n\n===BLOCK_END===",
-            [DataBlock(description="Код с пустыми строками", content="def foo():\n    pass")],
+            [
+                DataBlock(
+                    description="Код с пустыми строками", content="def foo():\n    pass"
+                )
+            ],
             id="block_with_blank_lines",
         ),
         pytest.param(
             "===BLOCK_START===\nСпецсимволы\nSELECT * FROM users WHERE name = 'O''Brien';\n===BLOCK_END===",
-            [DataBlock(description="Спецсимволы", content="SELECT * FROM users WHERE name = 'O''Brien';")],
+            [
+                DataBlock(
+                    description="Спецсимволы",
+                    content="SELECT * FROM users WHERE name = 'O''Brien';",
+                )
+            ],
             id="special_characters",
         ),
         pytest.param(

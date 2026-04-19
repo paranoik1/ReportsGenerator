@@ -1,5 +1,6 @@
 """Модуль анализа документов, шаблонов и пользовательских промптов."""
 
+import re
 from concurrent.futures import Future, as_completed
 from typing import TYPE_CHECKING, Any
 
@@ -29,12 +30,31 @@ class AnalyzerMixin:
         executor: "ThreadPoolExecutor"
         rate_limiter: "RateLimiter"
 
-        @staticmethod
-        def parse_blocks(response_text: str) -> list[DataBlock]: ...
-
         def run_agent(
-            self, model: AiModel, messages: list[dict], **kwargs: Any
+            self, model_name: str, messages: list[dict], **kwargs: Any
         ) -> str | None: ...
+
+    @staticmethod
+    def parse_blocks(response_text: str) -> list[DataBlock]:
+        """Извлекает блоки данных из ответа LLM."""
+        blocks = []
+        text = response_text.replace("\r\n", "\n").replace("\r", "\n")
+        pattern = r"===BLOCK_START===\n(.*?)\n===BLOCK_END==="
+        matches = re.finditer(pattern, text, re.DOTALL)
+
+        for match in matches:
+            block_text = match.group(1).strip()
+            lines = block_text.split("\n", maxsplit=1)
+
+            if len(lines) < 2:
+                logger.warning("parse_block_error", lines=lines)
+                continue
+
+            description = lines[0].strip()
+            content = lines[1].strip()
+            blocks.append(DataBlock(description=description, content=content))
+
+        return blocks
 
     def _analyze_single_document(self, doc: Document) -> list[DataBlock]:
         """Анализирует один документ (вызывается в отдельном потоке)."""
@@ -54,7 +74,7 @@ class AnalyzerMixin:
             prompt_len=len(full_system_prompt) + len(doc_prompt),
         )
 
-        response = self.run_agent(model, messages)
+        response = self.run_agent("document_analyst", messages)
         if not response:
             self.log.warning("document_analysis_failed", doc_path=doc.filepath)
             return []
@@ -116,7 +136,7 @@ class AnalyzerMixin:
             prompt_len=len(full_system_prompt) + len(template_prompt),
         )
 
-        content = self.run_agent(model, messages)
+        content = self.run_agent("template_analyst", messages)
         if not content:
             self.log.critical("template_specs_extracted_failed")
             raise RuntimeError("Не удалось извлечь спецификации шаблона")
@@ -143,7 +163,7 @@ class AnalyzerMixin:
             user_prompt_len=len(user_prompt),
         )
 
-        response = self.run_agent(model, messages)
+        response = self.run_agent("user_prompt_analyst", messages)
         if not response:
             return []
 

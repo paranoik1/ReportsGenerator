@@ -12,11 +12,42 @@ from openai.types.chat.chat_completion import ChatCompletion
 
 from config import Settings, get_settings
 from llm.rate_limiter import RateLimiter
-from models import FilePath
+from models import AgentConfigs, AgentModelConfig, FilePath
 from orchestrator.models import AiModel
-from utils.data_block_registry import DataBlock
 
 logger = structlog.get_logger(__name__)
+
+
+def _get_agent_config(
+    agent_configs: AgentConfigs | None,
+    agent_name: str,
+) -> AgentModelConfig | None:
+    """Получает конфигурацию для конкретного агента."""
+    if agent_configs is None:
+        return None
+    return getattr(agent_configs, agent_name, None)
+
+
+def _create_client(
+    agent_config: AgentModelConfig | None,
+    settings: Settings,
+) -> tuple[OpenAI, str, str]:
+    """Создаёт OpenAI клиент с учётом пользовательской конфигурации.
+
+    Возвращает: (client, base_url, api_key)
+    """
+    if agent_config and agent_config.base_url:
+        base_url = agent_config.base_url
+    else:
+        base_url = settings.llm_base_url
+
+    if agent_config and agent_config.api_key:
+        api_key = agent_config.api_key
+    else:
+        api_key = settings.llm_api_key
+
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    return client, base_url, api_key
 
 
 class BaseOrchestrator:
@@ -27,14 +58,22 @@ class BaseOrchestrator:
         output_dir: FilePath,
         task_id: str,
         settings: Settings | None = None,
+        models_roles: dict[str, AiModel] | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.client = OpenAI(
-            base_url=self.settings.llm_base_url, api_key=self.settings.llm_api_key
-        )
         self.output_dir = Path(output_dir)
         self.task_id = task_id
         self.log = logger.bind(task_id=self.task_id)
+
+        # Модели для ролей (будут установлены в Orchestrator)
+        self.MODELS_ROLES = models_roles or {}
+
+        # По умолчанию используем один клиент для всех агентов
+        # (можно переопределить для отдельных агентов)
+        self.client = OpenAI(
+            base_url=self.settings.llm_base_url,
+            api_key=self.settings.llm_api_key,
+        )
 
         # Rate limiter для контроля частоты запросов
         self.rate_limiter = RateLimiter(min_delay=self.settings.rate_limit_delay)
@@ -48,32 +87,11 @@ class BaseOrchestrator:
         """Освобождает ресурсы при уничтожении объекта."""
         self.executor.shutdown(wait=False)
 
-    @staticmethod
-    def parse_blocks(response_text: str) -> list[DataBlock]:
-        """Извлекает блоки данных из ответа LLM."""
-        blocks = []
-        text = response_text.replace("\r\n", "\n").replace("\r", "\n")
-        pattern = r"===BLOCK_START===\n(.*?)\n===BLOCK_END==="
-        matches = re.finditer(pattern, text, re.DOTALL)
-
-        for match in matches:
-            block_text = match.group(1).strip()
-            lines = block_text.split("\n", maxsplit=1)
-
-            if len(lines) < 2:
-                logger.warning("parse_block_error", lines=lines)
-                continue
-
-            description = lines[0].strip()
-            content = lines[1].strip()
-            blocks.append(DataBlock(description=description, content=content))
-
-        return blocks
-
     def _execute_request(
         self,
         model: AiModel,
         messages: list[dict],
+        client: OpenAI | None = None,
         is_json: bool = False,
         **kwargs: Any,
     ) -> ChatCompletion:
@@ -84,9 +102,12 @@ class BaseOrchestrator:
         # Применяем rate limiting перед запросом
         self.rate_limiter.acquire()
 
+        # Используем переданный клиент или общий
+        effective_client = client or self.client
+
         start_time = time.time()
         try:
-            response = self.client.chat.completions.create(
+            response = effective_client.chat.completions.create(
                 model=model.name,
                 messages=messages,  # type: ignore
                 reasoning_effort=model.reasoning_effort,
@@ -110,12 +131,58 @@ class BaseOrchestrator:
 
         return response
 
+    def get_client_for_agent(
+        self,
+        agent_name: str,
+        agent_configs: AgentConfigs | None = None,
+    ) -> OpenAI:
+        """Получает или создаёт клиент для конкретного агента.
+
+        Если для агента указана пользовательская конфигурация (base_url или api_key),
+        создаётся отдельный клиент. Иначе возвращается общий клиент.
+        """
+        agent_config = _get_agent_config(agent_configs, agent_name)
+        client, _, _ = _create_client(agent_config, self.settings)
+        return client
+
     def run_agent(
-        self, model: AiModel, messages: list[dict], **kwargs: Any
+        self,
+        model_name: str,
+        messages: list[dict],
+        agent_configs: AgentConfigs | None = None,
+        **kwargs: Any,
     ) -> str | None:
-        """Возвращает текстовый ответ от LLM."""
+        """Возвращает текстовый ответ от LLM.
+
+        Args:
+            model_name: Имя роли агента (document_analyst, formatter и т.д.)
+            messages: Сообщения для LLM
+            agent_configs: Пользовательские конфигурации агентов (если None - используется self._agent_configs)
+            **kwargs: Дополнительные параметры для запроса
+        """
+        # Используем переданные конфигурации или из инстанса
+        if agent_configs is None:
+            agent_configs = getattr(self, "_agent_configs", None)
+
+        # Получаем конфигурацию модели для этого агента
+        model = self.MODELS_ROLES.get(model_name)
+        if model is None:
+            self.log.error("model_not_found", model_name=model_name)
+            return None
+
+        # Получаем клиент для этого агента (с учётом пользовательских настроек)
+        agent_config = _get_agent_config(agent_configs, model_name)
+
+        # Используем агент-специфичный клиент
+        client, base_url, api_key = _create_client(agent_config, self.settings)
+
         try:
-            response = self._execute_request(model=model, messages=messages, **kwargs)
+            response = self._execute_request(
+                model=model,
+                messages=messages,
+                client=client,
+                **kwargs,
+            )
         except Exception as ex:
             self.log.exception("llm_request_error", error=str(ex))
             return None

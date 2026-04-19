@@ -56,6 +56,7 @@ class TaskWorkerPool:
             report_generator = ReportGenerator(
                 task_id=task.task_id,
                 output_dir=task.tmp_dir,
+                agent_configs=task.agent_configs,
             )
 
             state = report_generator.generate_report(

@@ -3,7 +3,7 @@ from pathlib import Path
 import markdown
 import structlog
 
-from models import Document, ImageDocument, StateAgents
+from models import AgentConfigs, Document, ImageDocument, StateAgents
 from orchestrator import Orchestrator
 from utils.md2docx import html_to_docx
 
@@ -11,10 +11,16 @@ logger = structlog.get_logger(__name__)
 
 
 class ReportGenerator:
-    def __init__(self, task_id: str, output_dir: str | Path) -> None:
+    def __init__(
+        self,
+        task_id: str,
+        output_dir: str | Path,
+        agent_configs: AgentConfigs | None = None,
+    ) -> None:
         self.log = logger.bind(task_id=task_id)
         self.task_id = task_id
         self.output_dir = Path(output_dir)
+        self.agent_configs = agent_configs
 
     def generate_report(
         self,
@@ -64,7 +70,11 @@ class ReportGenerator:
             images=image_docs,
         )
 
-        llm_pipeline = Orchestrator(self.output_dir, task_id=self.task_id)
+        llm_pipeline = Orchestrator(
+            self.output_dir,
+            task_id=self.task_id,
+            agent_configs=self.agent_configs,
+        )
         llm_pipeline.run(state)
 
         if not state.report_markdown:

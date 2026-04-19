@@ -12,6 +12,117 @@
 <div class="container">
     <h1 class="text-center mb-4">🤖 Генератор отчётов</h1>
 
+    <!-- Настройки моделей AI (опционально) -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#modelConfigSection" style="cursor: pointer;">
+                ⚙️ Настройки AI моделей
+                <small class="text-muted">(опционально)</small>
+            </h5>
+        </div>
+        <div class="card-body collapse" id="modelConfigSection">
+            <p class="text-muted small">Настройте подключение к AI моделям для каждого агента. Если оставить пустым — будут использоваться настройки по умолчанию.</p>
+            
+            <div class="row">
+                <!-- Document Analyst -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <strong>📄 Document Analyst</strong>
+                            <small class="text-muted d-block">Анализ загруженных документов</small>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label small">Модель:</label>
+                                <input type="text" class="form-control form-control-sm" name="model_document_analyst" placeholder=" напр. kimi-k2-thinking:cloud">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">Base URL:</label>
+                                <input type="text" class="form-control form-control-sm" name="base_url_document_analyst" placeholder=" напр. http://127.0.0.1:11434/v1">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">API Key:</label>
+                                <input type="password" class="form-control form-control-sm" name="api_key_document_analyst" placeholder=" напр. ollama">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Template Analyst -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <strong>📋 Template Analyst</strong>
+                            <small class="text-muted d-block">Анализ шаблона отчёта</small>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label small">Модель:</label>
+                                <input type="text" class="form-control form-control-sm" name="model_template_analyst" placeholder=" напр. kimi-k2-thinking:cloud">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">Base URL:</label>
+                                <input type="text" class="form-control form-control-sm" name="base_url_template_analyst" placeholder=" напр. http://127.0.0.1:11434/v1">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">API Key:</label>
+                                <input type="password" class="form-control form-control-sm" name="api_key_template_analyst" placeholder=" напр. ollama">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Prompt Analyst -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <strong>💬 User Prompt Analyst</strong>
+                            <small class="text-muted d-block">Анализ запроса пользователя</small>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label small">Модель:</label>
+                                <input type="text" class="form-control form-control-sm" name="model_user_prompt_analyst" placeholder=" напр. kimi-k2-thinking:cloud">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">Base URL:</label>
+                                <input type="text" class="form-control form-control-sm" name="base_url_user_prompt_analyst" placeholder=" напр. http://127.0.0.1:11434/v1">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">API Key:</label>
+                                <input type="password" class="form-control form-control-sm" name="api_key_user_prompt_analyst" placeholder=" напр. ollama">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Formatter -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <strong>📝 Formatter</strong>
+                            <small class="text-muted d-block">Форматирование итогового отчёта</small>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label small">Модель:</label>
+                                <input type="text" class="form-control form-control-sm" name="model_formatter" placeholder=" напр. qwen3.5:cloud">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">Base URL:</label>
+                                <input type="text" class="form-control form-control-sm" name="base_url_formatter" placeholder=" напр. http://127.0.0.1:11434/v1">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">API Key:</label>
+                                <input type="password" class="form-control form-control-sm" name="api_key_formatter" placeholder=" напр. ollama">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Форма создания задачи -->
     <div class="card mb-4">
         <div class="card-header">
