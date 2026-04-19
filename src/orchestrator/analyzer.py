@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from models import Document, StateAgents
-from orchestrator.models import AiModel, TaskDefinition, TaskResult
+from orchestrator.dto import AiModel, TaskDefinition, TaskResult
 from utils.data_block_registry import DataBlock
 
 if TYPE_CHECKING:

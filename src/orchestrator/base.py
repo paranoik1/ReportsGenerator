@@ -1,6 +1,5 @@
 """Базовый класс оркестратора с общей инфраструктурой."""
 
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -13,7 +12,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from config import Settings, get_settings
 from llm.rate_limiter import RateLimiter
 from models import AgentConfigs, AgentModelConfig, FilePath
-from orchestrator.models import AiModel
+from orchestrator.dto import AiModel
 
 logger = structlog.get_logger(__name__)
 

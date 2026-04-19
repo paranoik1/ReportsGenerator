@@ -48,9 +48,9 @@ def start():
     template_file = request.files.get("template")
 
     saved_paths = []
-    for file in files:
+    for i, file in enumerate(files, start=1):
         if file.filename:
-            filename = secure_filename(file.filename)
+            filename = secure_filename(file.filename).strip() or f'upload_file_{i}'
             path = os.path.join(task_upload_dir, filename)
             file.save(path)
             saved_paths.append(path)

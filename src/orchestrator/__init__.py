@@ -3,11 +3,11 @@
 from openai.types import ReasoningEffort
 
 from config import get_settings
-from models import AgentConfigs, StateAgents
+from models import AgentConfigs, StateAgents, AgentModelConfig
 from orchestrator.analyzer import AnalyzerMixin
-from orchestrator.base import BaseOrchestrator
+from orchestrator.base import BaseOrchestrator, _get_agent_config
 from orchestrator.formatter import FormatterMixin
-from orchestrator.models import AiModel
+from orchestrator.dto import AiModel
 
 __all__ = ["Orchestrator"]
 
@@ -20,11 +20,9 @@ def _build_models_roles(
 
     # Функция для получения конфигурации для конкретного агента
     def get_agent_config(agent_name: str):
-        if agent_configs is None:
-            return None
-        return getattr(agent_configs, agent_name, None)
+        return _get_agent_config(agent_configs, agent_name)
 
-    def resolve_model(default_model: str, agent_config) -> str:
+    def resolve_model(default_model: str, agent_config: AgentModelConfig | None) -> str:
         """Определяет имя модели: пользовательское или по умолчанию."""
         if agent_config and agent_config.model:
             return agent_config.model

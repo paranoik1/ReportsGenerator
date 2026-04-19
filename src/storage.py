@@ -1,4 +1,5 @@
 import sqlite3
+import ast
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any
@@ -94,9 +95,9 @@ class SQLiteTaskStorage(TaskStorage):
             tmp_dir=row["tmp_dir"],
             status=row["status"],
             user_prompt=row["user_prompt"] or "",
-            file_paths=eval(row["file_paths"] or "[]"),
+            file_paths=ast.literal_eval(row["file_paths"] or "[]"),
             template_path=row["template_path"],
-            images=eval(row["images"] or "[]"),
+            images=ast.literal_eval(row["images"] or "[]"),
             error=row["error"],
             created_at=row["created_at"],
             started_at=row["started_at"],

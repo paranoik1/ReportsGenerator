@@ -38,7 +38,7 @@ class AiModel:
 
     name: str
     system_prompt_template: str
-    reasoning_effort: ReasoningEffort = "medium"
+    reasoning_effort: ReasoningEffort = "low"
     temperature: float | None = None
 
     def render_system_prompt(self, **context: Any) -> str:

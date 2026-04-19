@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # === LLM API ===
     llm_base_url: str = Field(
-        default="http://127.0.0.1:11434/v1",
+        default="http://127.0.0.1:11434/v1/",
         description="Базовый URL LLM API (OpenAI-compatible)",
     )
     llm_api_key: str = Field(default="ollama", description="API ключ для LLM")

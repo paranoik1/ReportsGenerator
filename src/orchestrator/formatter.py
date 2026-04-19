@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from openai.types.chat.chat_completion import ChatCompletion
     from structlog import BoundLogger
 
-    from orchestrator.models import AiModel
+    from orchestrator.dto import AiModel
 
 
 logger = structlog.get_logger(__name__)
