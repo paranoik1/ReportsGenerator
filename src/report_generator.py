@@ -5,7 +5,7 @@ import structlog
 
 from models import AgentConfigs, Document, ImageDocument, StateAgents
 from orchestrator import Orchestrator
-from utils.md2docx import html_to_docx
+from utils.md2docx import html_to_docx, markdown_to_html_safe
 
 logger = structlog.get_logger(__name__)
 
@@ -105,9 +105,8 @@ class ReportGenerator:
 
     def _save_html(self, markdown_content: str) -> Path:
         """Сохраняет отчет в HTML формате."""
-        html_content = markdown.markdown(
-            markdown_content, extensions=["extra", "sane_lists", "nl2br"]
-        )
+        
+        html_content = markdown_to_html_safe(markdown_content)
 
         html_path = self.output_dir / f"{self.task_id}.html"
         html_path.write_text(html_content, encoding="utf-8")

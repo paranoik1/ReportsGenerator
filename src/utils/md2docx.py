@@ -257,10 +257,10 @@ def protect_code_blocks(md_text: str) -> tuple[str, dict[str, str]]:
     def replace_code(match):
         code_content = match.group(1)  # Содержимое между <code> и </code>
         # HTML-экранируем спецсимволы, чтобы они не ломали парсинг
-        escaped = html.escape(code_content)
+        # escaped = html.escape(code_content)
         # Создаём уникальный плейсхолдер
         placeholder = f"{placeholder_prefix}{len(code_map)}_{uuid.uuid4()}"
-        code_map[placeholder] = f"<code>{escaped}</code>"
+        code_map[placeholder] = f"<code>{code_content}</code>"
         return placeholder
 
     # Находим все <code>...</code> блоки (DOTALL для переносов строк)
@@ -314,7 +314,7 @@ def html_to_docx(html_path: str, docx_path: str):
 if __name__ == "__main__":
     import markdown
 
-    md_path = "uploads/report.md"
+    md_path = "/home/q/Projects/ReportsGen/src/tmp/06dee0f0-9aa8-45df-8405-38642438f377/06dee0f0-9aa8-45df-8405-38642438f377.md"
 
     with open(md_path) as fp:
         md_result = fp.read()

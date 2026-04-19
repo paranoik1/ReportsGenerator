@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 
 import structlog
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request, send_file, make_response
 from werkzeug.utils import secure_filename
 
 from config import get_settings
@@ -40,12 +40,16 @@ def index():
 
 @app.route("/start", methods=["POST"])
 def start():
-    task_id = str(uuid.uuid4())
-    task_upload_dir, task_tmp_dir = create_task_dirs(task_id)
-
-    user_prompt = request.form.get("prompt", "")
+    user_prompt = request.form.get("prompt")
     files = request.files.getlist("files")
     template_file = request.files.get("template")
+
+    if not user_prompt:
+        jsonify_response = jsonify({'error': 'Отсутствует пользовательский запрос'})
+        return make_response(jsonify_response, 400)
+    
+    task_id = str(uuid.uuid4())
+    task_upload_dir, task_tmp_dir = create_task_dirs(task_id)
 
     saved_paths = []
     for i, file in enumerate(files, start=1):
@@ -78,7 +82,6 @@ def start():
 
     # Парсинг конфигураций моделей AI
     agent_configs = None
-    has_any_config = False
 
     def parse_agent_config(prefix: str) -> AgentModelConfig:
         model = request.form.get(f"model_{prefix}")

@@ -180,13 +180,18 @@ function initFormSubmit() {
             });
 
             const data = await res.json();
+
+            if (res.status != 200) {
+                throw data.error
+            }
+
             state.taskId = data.task_id;
 
             state.pollInterval = setInterval(pollStatus, 2000);
             progressSection.classList.remove('d-none');
 
         } catch (err) {
-            showError('Ошибка запуска задачи: ' + err.message);
+            showError('Ошибка запуска задачи: ' + err);
         }
     };
 }
