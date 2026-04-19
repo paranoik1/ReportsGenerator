@@ -52,11 +52,13 @@ class ReportGenerator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         documents = [Document(filepath=path) for path in file_paths]
-        template = (
-            Document(filepath=template_path, extractor="soffice")
-            if template_path
-            else None
-        )
+        template = None
+        if template_path:
+            ext = Path(template_path).suffix.lower()
+            # soffice используется только для .docx/.odt/.doc файлов
+            # для остальных - дефолтный метод (конвертация через pypandoc или чтение текста)
+            extractor = "soffice" if ext in {".docx", ".odt", ".doc"} else "default"
+            template = Document(filepath=template_path, extractor=extractor)
         image_docs = [
             ImageDocument(filepath=path, description=desc)
             for path, desc in (images or [])

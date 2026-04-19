@@ -31,8 +31,7 @@ class SQLiteTaskStorage(TaskStorage):
     def _init_db(self):
         """Создаёт таблицу задач."""
         with self._get_connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     upload_dir TEXT NOT NULL,
@@ -47,8 +46,7 @@ class SQLiteTaskStorage(TaskStorage):
                     started_at REAL,
                     completed_at REAL
                 )
-            """
-            )
+            """)
             conn.commit()
 
     @contextmanager
