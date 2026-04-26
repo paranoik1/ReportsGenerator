@@ -33,7 +33,7 @@ SUPPORTED_TEXT_EXTENSIONS = [
     ".hpp",
     ".log",
     ".json",
-    "jsonl",
+    ".jsonl",
     ".csv",
 ]
 

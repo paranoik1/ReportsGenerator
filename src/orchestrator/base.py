@@ -94,7 +94,7 @@ class BaseOrchestrator:
         is_json: bool = False,
         **kwargs: Any,
     ) -> ChatCompletion:
-        """Приватный метод для общей логики запроса."""
+        """Приватный метод для общей логики запроса к Ollama API."""
         if is_json:
             kwargs["response_format"] = {"type": "json_object"}
 
@@ -104,16 +104,26 @@ class BaseOrchestrator:
         # Используем переданный клиент или общий
         effective_client = client or self.client
 
+        # Формируем базовые параметры запроса
+        request_params: dict[str, Any] = {
+            "model": model.name,
+            "messages": messages,
+            "timeout": self.settings.llm_timeout,
+        }
+
+        # Добавляем temperature только если она указана
+        if model.temperature is not None:
+            request_params["temperature"] = model.temperature
+
+        # Ollama не поддерживает reasoning_effort, поэтому не добавляем этот параметр
+        # reasoning_effort доступен только для моделей OpenAI o1/o3
+
+        # Добавляем дополнительные параметры из kwargs
+        request_params.update(kwargs)
+
         start_time = time.time()
         try:
-            response = effective_client.chat.completions.create(
-                model=model.name,
-                messages=messages,  # type: ignore
-                reasoning_effort=model.reasoning_effort,
-                temperature=model.temperature,
-                timeout=self.settings.llm_timeout,
-                **kwargs,
-            )
+            response = effective_client.chat.completions.create(**request_params)  # type: ignore
         except:
             duration = time.time() - start_time
             self.log.exception(

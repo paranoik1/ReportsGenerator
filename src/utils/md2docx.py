@@ -1,7 +1,7 @@
-import html
 import os
 import re
 import uuid
+import markdown
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
@@ -312,9 +312,7 @@ def html_to_docx(html_path: str, docx_path: str):
 
 
 if __name__ == "__main__":
-    import markdown
-
-    md_path = "/home/q/Projects/ReportsGen/src/tmp/06dee0f0-9aa8-45df-8405-38642438f377/06dee0f0-9aa8-45df-8405-38642438f377.md"
+    md_path = "/home/q/Projects/ReportsGen/tmp/266d1032-c28f-41f6-8ee9-baf3cebc1a0d/266d1032-c28f-41f6-8ee9-baf3cebc1a0d.md"
 
     with open(md_path) as fp:
         md_result = fp.read()
