@@ -12,8 +12,9 @@ from storage import SQLiteTaskStorage
 from task_worker_pool import TaskWorkerPool
 from utils.log import setup_logging
 
-settings = get_settings()
+APP_DIR = Path(__file__).parent.parent
 
+settings = get_settings()
 setup_logging()
 
 app = Flask(__name__)
@@ -190,7 +191,7 @@ def view_html(task_id):
     # FIXME: task_storage не сохраняет AgentsState в базе
     # if task and task.state and task.state.report_html_path:
     if task and task.status == "done":
-        return send_file(Path(task.tmp_dir) / f"{task_id}.html", mimetype="text/html")
+        return send_file(APP_DIR / task.tmp_dir / f"{task_id}.html", mimetype="text/html")
     return jsonify({"error": "HTML not found"}), 404
 
 
@@ -202,7 +203,7 @@ def download(task_id):
     # if task and task.state and task.state.report_docx_path:
     if task and task.status == "done":
         return send_file(
-            Path(task.tmp_dir) / f"{task_id}.docx",
+            APP_DIR / task.tmp_dir / f"{task_id}.docx",
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             as_attachment=True,
             download_name=f"report_{task_id[:8]}.docx",

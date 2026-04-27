@@ -117,6 +117,10 @@ class AnalyzerMixin:
                     error=str(ex),
                 )
 
+        if len(all_blocks) == 0:
+            self.log.warning('documents_summaraized_failed')
+            return []
+        
         self.log.info("documents_summarized", blocks_count=len(all_blocks))
         return all_blocks
 

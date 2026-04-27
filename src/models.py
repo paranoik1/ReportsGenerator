@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Literal
-
+from magic import Magic
 import structlog
 from bs4 import BeautifulSoup
 from pypandoc import convert_file
@@ -18,24 +18,7 @@ TaskStatus = Literal["queued", "processing", "done", "error"]
 
 
 logger = structlog.get_logger(__name__)
-
-SUPPORTED_TEXT_EXTENSIONS = [
-    ".txt",
-    ".md",
-    ".html",
-    ".py",
-    ".sql",
-    ".css",
-    ".js",
-    ".cs",
-    ".cpp",
-    ".h",
-    ".hpp",
-    ".log",
-    ".json",
-    ".jsonl",
-    ".csv",
-]
+_magic = Magic(mime=True)
 
 
 @dataclass
@@ -104,32 +87,33 @@ class Document:
         if not isinstance(self.filepath, Path):
             self.filepath = Path(self.filepath)
 
-        ext = self.filepath.suffix.lower()
-
+        mime_type = _magic.from_file(self.filepath)
+        
         if self.extractor == "soffice":
-            if ext not in {".docx", ".odt", ".doc"}:
+            if mime_type not in {"application/vnd.oasis.opendocument.text", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"}:
                 raise ValueError(
                     "Extractor soffice поддерживает только файлы документов"
                 )
 
             return self._soffice_extract_text()
 
-        if ext == ".pdf":
+        if mime_type == "application/pdf":
             reader = PdfReader(self.filepath)
             return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-        elif ext == ".docx":
+        elif mime_type in {"application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}:
             return convert_file(
                 self.filepath,
                 "markdown-simple_tables-grid_tables-multiline_tables-link_attributes-raw_html",
             )
-
-        elif ext in SUPPORTED_TEXT_EXTENSIONS:
+        elif mime_type.startswith('text/') or \
+            (
+                mime_type.startswith('application/') and \
+                'json' in mime_type
+            ):
             with open(self.filepath, "r", encoding="utf-8") as f:
                 return f.read()
 
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
+        raise ValueError(f"Unsupported file type: {mime_type} - {self.filepath}")
 
 
 @dataclass(frozen=True, slots=True)
