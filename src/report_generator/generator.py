@@ -24,9 +24,9 @@ def __clean_html(html: str) -> str:
 
     return soup.prettify()
 
-def _soffice_extract_text(filepath: Path) -> str:
+def __soffice_exec(filepath: Path, convert_to: str) -> str:
     workdir = filepath.parent
-    cmd = f"soffice --headless --convert-to html:HTML:EmbedImages {filepath} --outdir {workdir}".split()
+    cmd = f"soffice --headless --convert-to {convert_to} {filepath} --outdir {workdir}".split()
 
     log = logger.bind(cmd=cmd)
 
@@ -39,6 +39,11 @@ def _soffice_extract_text(filepath: Path) -> str:
         raise
     else:
         log.info("success_call_soffice", output=output)
+    
+    return output
+
+def _soffice_extract_html(filepath: Path) -> str:
+    _ = __soffice_exec(filepath, "html:HTML:EmbedImages")
 
     html_filepath = filepath.with_suffix(".html")
     with open(html_filepath) as fp:
@@ -60,6 +65,14 @@ def _soffice_extract_text(filepath: Path) -> str:
     return cleaned_html
 
 
+def _soffice_convert_to_docx(doc_filepath: Path) -> Path:
+    _ = __soffice_exec(doc_filepath, "docx")
+    docx_path = doc_filepath.with_suffix('.docx')
+    if not docx_path.exists():
+        raise FileNotFoundError('Не найден сконвертированный docx файл: ' + str(docx_path))
+    return docx_path
+
+
 def extract_text(filepath: Path, extractor: Literal["default", "soffice"] = "default"
 ) -> str:
     """Извлекает текст из файла в зависимости от расширения."""
@@ -75,13 +88,16 @@ def extract_text(filepath: Path, extractor: Literal["default", "soffice"] = "def
                 "Extractor soffice поддерживает только файлы документов"
             )
 
-        return _soffice_extract_text(filepath)
+        return _soffice_extract_html(filepath)
+
+    if mime_type == "application/msword":
+        filepath = _soffice_convert_to_docx(filepath)
 
     if mime_type == "application/pdf":
         reader = PdfReader(filepath)
         return "\n".join(page.extract_text() or "" for page in reader.pages)
     elif mime_type in {
-        "application/msword",
+        "application/vnd.oasis.opendocument.text",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }:
         return convert_file(
