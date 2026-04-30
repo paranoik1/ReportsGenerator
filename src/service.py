@@ -1,20 +1,19 @@
+from config import init_settings, APP_DIR
+
+settings = init_settings()
+
 import os
 import uuid
-from pathlib import Path
-
 import structlog
-from flask import Flask, jsonify, render_template, request, send_file, make_response
+from flask import Flask, jsonify, make_response, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from config import get_settings
-from models import AgentConfigs, AgentModelConfig, Task
-from storage import SQLiteTaskStorage
-from task_worker_pool import TaskWorkerPool
-from utils.log import setup_logging
+from report_generator.orchestrator.models import AgentConfigs, AgentModelConfig
+from setup_structlog import setup_logging
+from task_manage import SQLiteTaskStorage, TaskWorkerPool, Task
 
-APP_DIR = Path(__file__).parent.parent
 
-settings = get_settings()
+
 setup_logging()
 
 app = Flask(__name__)
@@ -46,16 +45,16 @@ def start():
     template_file = request.files.get("template")
 
     if not user_prompt:
-        jsonify_response = jsonify({'error': 'Отсутствует пользовательский запрос'})
+        jsonify_response = jsonify({"error": "Отсутствует пользовательский запрос"})
         return make_response(jsonify_response, 400)
-    
+
     task_id = str(uuid.uuid4())
     task_upload_dir, task_tmp_dir = create_task_dirs(task_id)
 
     saved_paths = []
     for i, file in enumerate(files, start=1):
         if file.filename:
-            filename = secure_filename(file.filename).strip() or f'upload_file_{i}'
+            filename = secure_filename(file.filename).strip() or f"upload_file_{i}"
             path = os.path.join(task_upload_dir, filename)
             file.save(path)
             saved_paths.append(path)
@@ -191,7 +190,9 @@ def view_html(task_id):
     # FIXME: task_storage не сохраняет AgentsState в базе
     # if task and task.state and task.state.report_html_path:
     if task and task.status == "done":
-        return send_file(APP_DIR / task.tmp_dir / f"{task_id}.html", mimetype="text/html")
+        return send_file(
+            APP_DIR / task.tmp_dir / f"{task_id}.html", mimetype="text/html"
+        )
     return jsonify({"error": "HTML not found"}), 404
 
 
@@ -231,7 +232,7 @@ atexit.register(on_shutdown)
 if __name__ == "__main__":
     on_start()
     app.run(
-        debug=settings.flask_debug,
+        debug=settings.debug,
         host=settings.flask_host,
         port=settings.flask_port,
         use_reloader=False,

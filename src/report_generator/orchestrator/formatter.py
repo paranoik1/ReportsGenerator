@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from models import AgentConfigs, StateAgents
-from orchestrator.tools import FORMATTER_TOOLS
-from utils.data_block_registry import DataBlocksRegistry
+from .models import AgentConfigs, AiModel, DataBlocksRegistry, StateAgents
+from .tools import FORMATTER_TOOLS
 
 if TYPE_CHECKING:
+    from openai import OpenAI
     from openai.types.chat.chat_completion import ChatCompletion
     from structlog import BoundLogger
 
-    from orchestrator.dto import AiModel
+    from config import Settings
 
 
 logger = structlog.get_logger(__name__)
@@ -23,16 +23,20 @@ class FormatterMixin:
     """Миксин для formatter-агента."""
 
     if TYPE_CHECKING:
-        MODELS_ROLES: dict[str, "AiModel"]
+        MODELS_ROLES: dict[str, AiModel]
         log: "BoundLogger"
+        settings: Settings
 
         def _execute_request(
             self,
             model: AiModel,
             messages: list[dict],
+            client: OpenAI | None = None,
             is_json: bool = False,
             **kwargs: Any,
-        ) -> "ChatCompletion": ...
+        ) -> ChatCompletion:
+            """Приватный метод для общей логики запроса к Ollama API."""
+            pass
 
     def _prepare_formatter_context(self, state: "StateAgents") -> tuple[str, str]:
         """
@@ -263,7 +267,7 @@ class FormatterMixin:
         Returns:
             str: Сгенерированный markdown-отчёт
         """
-        from orchestrator.base import _create_client
+        from .base import _create_client
 
         self.log.info("formatter_agent_start")
 
@@ -290,8 +294,8 @@ class FormatterMixin:
                     client=client,
                     tools=FORMATTER_TOOLS,
                 )
-            except Exception as ex:
-                self.log.exception("formatter_exception")
+            except ConnectionError as ex:
+                self.log.exception("formatter_connection_error")
                 continue
 
             state.iteration += 1

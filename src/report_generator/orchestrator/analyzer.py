@@ -2,23 +2,45 @@
 
 import re
 from concurrent.futures import Future, as_completed
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable
 
 import structlog
 
-from models import Document, StateAgents
-from orchestrator.dto import AiModel, TaskDefinition, TaskResult
-from utils.data_block_registry import DataBlock
+from .models import AgentConfigs, AiModel, DataBlock, Document
 
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
 
     from structlog import BoundLogger
 
-    from llm.rate_limiter import RateLimiter
+    from .models.state import StateAgents
+    from .rate_limiter import RateLimiter
 
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDefinition:
+    """Описание задачи для параллельного выполнения."""
+
+    name: str
+    func: Callable[..., Any]
+    args: tuple[Any, ...] = ()
+    kwargs: dict[str, Any] = field(default_factory=dict)
+    is_required: bool = True  # Можно пометить задачу как опциональную
+
+
+@dataclass(frozen=True, slots=True)
+class TaskResult:
+    """Результат выполнения задачи анализа."""
+
+    task_name: str
+    success: bool
+    result: Any = None
+    error: Exception | None = None
 
 
 class AnalyzerMixin:
@@ -29,10 +51,16 @@ class AnalyzerMixin:
         log: "BoundLogger"
         executor: "ThreadPoolExecutor"
         rate_limiter: "RateLimiter"
+        output_dir: Path
 
         def run_agent(
-            self, model_name: str, messages: list[dict], **kwargs: Any
-        ) -> str | None: ...
+            self,
+            model_name: str,
+            messages: list[dict],
+            agent_configs: AgentConfigs | None = None,
+            **kwargs: Any,
+        ) -> str | None:
+            pass
 
     @staticmethod
     def parse_blocks(response_text: str) -> list[DataBlock]:
@@ -118,9 +146,9 @@ class AnalyzerMixin:
                 )
 
         if len(all_blocks) == 0:
-            self.log.warning('documents_summaraized_failed')
+            self.log.warning("documents_summaraized_failed")
             return []
-        
+
         self.log.info("documents_summarized", blocks_count=len(all_blocks))
         return all_blocks
 
@@ -192,7 +220,9 @@ class AnalyzerMixin:
 
         return self.executor.submit(wrapper)
 
-    def _process_task_result(self, state: StateAgents, task_result: TaskResult) -> None:
+    def _process_task_result(
+        self, state: "StateAgents", task_result: TaskResult
+    ) -> None:
         """
         Обрабатывает результат задачи анализа и добавляет блоки в registry.
 
@@ -227,8 +257,8 @@ class AnalyzerMixin:
             self.log.info("analysis_task_completed", task_name=task_name)
 
         elif task_name == "user_prompt":
-            for i, block in enumerate(result):
-                if block.description == "user_prompt" or i == len(result) - 1:
+            for block in result:
+                if block.description == "user_prompt":
                     state.user_prompt_cleaned = block.content
                     continue
                 dbr.add_block(block)
@@ -236,7 +266,7 @@ class AnalyzerMixin:
                 "analysis_task_completed", task_name=task_name, blocks_count=len(result)
             )
 
-    def _build_analysis_tasks(self, state: StateAgents) -> list[TaskDefinition]:
+    def _build_analysis_tasks(self, state: "StateAgents") -> list[TaskDefinition]:
         """
         Формирует список задач анализа на основе состояния.
 
@@ -279,7 +309,7 @@ class AnalyzerMixin:
 
         return tasks
 
-    def fill_data_blocks_registry(self, state: StateAgents) -> None:
+    def fill_data_blocks_registry(self, state: "StateAgents") -> None:
         """
         Параллельно запускает задачи анализа и объединяет результаты в registry.
 

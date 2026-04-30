@@ -10,9 +10,10 @@ from openai import OpenAI
 from openai.types.chat.chat_completion import ChatCompletion
 
 from config import Settings, get_settings
-from llm.rate_limiter import RateLimiter
-from models import AgentConfigs, AgentModelConfig, FilePath
-from orchestrator.dto import AiModel
+from report_generator.orchestrator.models.ai_model import AiModel
+
+from .models import AgentConfigs, AgentModelConfig, FilePath
+from .rate_limiter import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -115,10 +116,9 @@ class BaseOrchestrator:
         if model.temperature is not None:
             request_params["temperature"] = model.temperature
 
-        # Ollama не поддерживает reasoning_effort, поэтому не добавляем этот параметр
-        # reasoning_effort доступен только для моделей OpenAI o1/o3
+        if model.reasoning_effort:
+            request_params["reasoning_effort"] = model.reasoning_effort
 
-        # Добавляем дополнительные параметры из kwargs
         request_params.update(kwargs)
 
         start_time = time.time()

@@ -1,8 +1,8 @@
 import os
 import re
 import uuid
-import markdown
 
+import markdown
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.document import Document as DocumentObject
@@ -12,7 +12,7 @@ from docx.oxml.ns import qn
 from docx.table import _Cell
 
 try:
-    from utils.docx_styles import setup_document_styles
+    from report_generator.docx_styles import setup_document_styles
 except ImportError:
     from docx_styles import setup_document_styles
 
@@ -312,7 +312,7 @@ def html_to_docx(html_path: str, docx_path: str):
 
 
 if __name__ == "__main__":
-    md_path = "/home/q/Projects/ReportsGen/tmp/266d1032-c28f-41f6-8ee9-baf3cebc1a0d/266d1032-c28f-41f6-8ee9-baf3cebc1a0d.md"
+    md_path = "tmp/39cbd052-dfd7-4218-b316-dffc90b76935/39cbd052-dfd7-4218-b316-dffc90b76935.md"
 
     with open(md_path) as fp:
         md_result = fp.read()

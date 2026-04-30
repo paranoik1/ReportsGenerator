@@ -1,11 +1,10 @@
 from pathlib import Path
 
-import markdown
 import structlog
 
-from models import AgentConfigs, Document, ImageDocument, StateAgents
-from orchestrator import Orchestrator
-from utils.md2docx import html_to_docx, markdown_to_html_safe
+from .md2docx import html_to_docx, markdown_to_html_safe
+from .orchestrator import Orchestrator
+from .orchestrator.models import AgentConfigs, Document, ImageDocument, StateAgents
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +36,6 @@ class ReportGenerator:
             file_paths: Пути к файлам с документами
             template_path: Путь к файлу с примером отчета (опционально)
             images: Список кортежей (путь_к_файлу, описание)
-            task_id: Идентификатор задачи
             output_dir: Директория для сохранения результатов
 
         Returns:
@@ -54,11 +52,14 @@ class ReportGenerator:
         documents = [Document(filepath=path) for path in file_paths]
         template = None
         if template_path:
-            ext = Path(template_path).suffix.lower()
             # soffice используется только для .docx/.odt/.doc файлов
             # для остальных - дефолтный метод (конвертация через pypandoc или чтение текста)
-            extractor = "soffice" if ext in {".docx", ".odt", ".doc"} else "default"
-            template = Document(filepath=template_path, extractor=extractor)
+            try:
+                template = Document(filepath=template_path, extractor="soffice")
+            except ValueError:
+                self.log.exception("soffice_extract_failed")
+                template = Document(filepath=template_path, extractor="default")
+
         image_docs = [
             ImageDocument(filepath=path, description=desc)
             for path, desc in (images or [])
@@ -105,7 +106,7 @@ class ReportGenerator:
 
     def _save_html(self, markdown_content: str) -> Path:
         """Сохраняет отчет в HTML формате."""
-        
+
         html_content = markdown_to_html_safe(markdown_content)
 
         html_path = self.output_dir / f"{self.task_id}.html"

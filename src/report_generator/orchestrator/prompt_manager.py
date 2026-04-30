@@ -11,7 +11,7 @@ class PromptManager:
 
     def __init__(
         self,
-        prompts_dir: str | Path | None = None,
+        prompts_dir: str | Path,
         trim_blocks: bool = True,
         lstrip_blocks: bool = True,
     ) -> None:
@@ -24,9 +24,6 @@ class PromptManager:
             trim_blocks: Удалять первый перевод строки после блока.
             lstrip_blocks: Удалять пробелы в начале строки перед блоком.
         """
-        if prompts_dir is None:
-            prompts_dir = Path(__file__).parent.parent.parent / "prompts"
-
         self.prompts_dir = Path(prompts_dir)
         self.env = Environment(
             loader=FileSystemLoader(self.prompts_dir),

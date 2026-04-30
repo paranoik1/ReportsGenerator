@@ -10,8 +10,8 @@ from config import get_settings
 from report_generator import ReportGenerator
 
 if TYPE_CHECKING:
-    from models import Task
-    from storage import TaskStorage
+    from .storage import TaskStorage
+    from .task import Task
 
 
 class TaskWorkerPool:
