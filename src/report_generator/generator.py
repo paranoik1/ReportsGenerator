@@ -1,5 +1,10 @@
+import subprocess
 from pathlib import Path
-
+from bs4 import BeautifulSoup
+from magic import Magic
+from pypandoc import convert_file  # type: ignore
+from pypdf import PdfReader
+from typing import Literal
 import structlog
 
 from .md2docx import html_to_docx, markdown_to_html_safe
@@ -7,6 +12,89 @@ from .orchestrator import Orchestrator
 from .orchestrator.models import AgentConfigs, Document, ImageDocument, StateAgents
 
 logger = structlog.get_logger(__name__)
+
+_magic = Magic(mime=True)
+
+
+def __clean_html(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup(["img", "head"]):
+        tag.decompose()
+
+    return soup.prettify()
+
+def _soffice_extract_text(filepath: Path) -> str:
+    workdir = filepath.parent
+    cmd = f"soffice --headless --convert-to html:HTML:EmbedImages {filepath} --outdir {workdir}".split()
+
+    log = logger.bind(cmd=cmd)
+
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
+    except subprocess.CalledProcessError as exc:
+        log.exception(
+            "failed_call_soffice", return_code=exc.returncode, output=exc.output
+        )
+        raise
+    else:
+        log.info("success_call_soffice", output=output)
+
+    html_filepath = filepath.with_suffix(".html")
+    with open(html_filepath) as fp:
+        content_html = fp.read()
+
+    cleaned_html = __clean_html(content_html)
+    cleaned_html_filepath = html_filepath.with_suffix(".clean.html")
+
+    with open(cleaned_html_filepath, "w") as fp:
+        fp.write(cleaned_html)
+
+    logger.info(
+        "clean_html",
+        content_cleaned_len=len(cleaned_html),
+        content_len=len(content_html),
+        cleaned_filepath=cleaned_html_filepath,
+    )
+
+    return cleaned_html
+
+
+def extract_text(filepath: Path, extractor: Literal["default", "soffice"] = "default"
+) -> str:
+    """Извлекает текст из файла в зависимости от расширения."""
+    mime_type = _magic.from_file(filepath)
+
+    if extractor == "soffice":
+        if mime_type not in {
+            "application/vnd.oasis.opendocument.text",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword",
+        }:
+            raise ValueError(
+                "Extractor soffice поддерживает только файлы документов"
+            )
+
+        return _soffice_extract_text(filepath)
+
+    if mime_type == "application/pdf":
+        reader = PdfReader(filepath)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    elif mime_type in {
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }:
+        return convert_file(
+            filepath,
+            "markdown-simple_tables-grid_tables-multiline_tables-link_attributes-raw_html",
+        )
+    elif mime_type.startswith("text/") or (
+        mime_type.startswith("application/") and "json" in mime_type
+    ):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+
+    raise ValueError(f"Unsupported file type: {mime_type} - {filepath}")
 
 
 class ReportGenerator:
@@ -49,17 +137,31 @@ class ReportGenerator:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        documents = [Document(filepath=path) for path in file_paths]
+        documents: list[Document] = []
+        for path in file_paths:
+            try:
+                content = extract_text(Path(path))
+                doc = Document(filepath=path, content=content)
+                documents.append(doc)
+            except (ValueError, subprocess.CalledProcessError):
+                self.log.exception('extract_text_failed', file_path=path)
+
         template = None
         if template_path:
             # soffice используется только для .docx/.odt/.doc файлов
             # для остальных - дефолтный метод (конвертация через pypandoc или чтение текста)
+            _temp_path = Path(template_path)
             try:
-                template = Document(filepath=template_path, extractor="soffice")
+                content = extract_text(_temp_path, extractor="soffice")
+                template = Document(filepath=_temp_path, content=content)
             except ValueError:
                 self.log.exception("soffice_extract_failed")
-                template = Document(filepath=template_path, extractor="default")
-
+                try:
+                    content = extract_text(_temp_path, extractor="default")
+                    template = Document(filepath=_temp_path, content=content)
+                except ValueError:
+                    self.log.exception("template_raw_content_extract_failed")
+                    
         image_docs = [
             ImageDocument(filepath=path, description=desc)
             for path, desc in (images or [])
