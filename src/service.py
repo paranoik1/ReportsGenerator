@@ -13,15 +13,14 @@ from setup_structlog import setup_logging
 from task_manage import SQLiteTaskStorage, TaskWorkerPool, Task
 
 
-
-setup_logging()
+setup_logging(settings.log_dir)
 
 app = Flask(__name__)
 logger = structlog.get_logger("flask_service")
 
 
 task_storage = SQLiteTaskStorage(db_path=str(settings.database_path))
-worker_pool = TaskWorkerPool(task_storage)
+worker_pool = TaskWorkerPool(task_storage, settings.max_workers)
 
 
 def create_task_dirs(task_id: str) -> tuple[str, str]:

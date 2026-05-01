@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from typing import Any
-
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 
@@ -49,3 +48,14 @@ class PromptManager:
         """
         template = self.env.get_template(template_name)
         return template.render(**context)
+
+
+# Отложить инициализацию:
+_prompt_manager: PromptManager | None = None
+
+def get_prompt_manager() -> PromptManager:
+    global _prompt_manager
+    if _prompt_manager is None:
+        from config import get_settings
+        _prompt_manager = PromptManager(get_settings().prompts_path)
+    return _prompt_manager

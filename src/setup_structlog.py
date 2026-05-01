@@ -4,8 +4,6 @@ from pathlib import Path
 
 import structlog
 
-from config import get_settings
-
 
 class ExcludeLoggerFilter(logging.Filter):
     def __init__(self, *exclude_names: str):
@@ -26,10 +24,8 @@ class IncludeOnlyFilter(logging.Filter):
 
 
 def setup_logging(
-    json_log_file: str = "events.jsonl", journal_log_file: str = "journal.log"
+    log_dir: Path, json_log_file: str = "events.jsonl", journal_log_file: str = "journal.log"
 ) -> None:
-    settings = get_settings()
-    log_dir = settings.log_dir
     os.makedirs(log_dir, exist_ok=True)
     include_filter = IncludeOnlyFilter(
         "flask_service",

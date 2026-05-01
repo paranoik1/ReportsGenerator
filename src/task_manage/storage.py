@@ -4,8 +4,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any
 
-from config import get_settings
-from task_manage.task import Task
+from .task import Task
 
 
 class TaskStorage(ABC):
@@ -25,8 +24,8 @@ class TaskStorage(ABC):
 class SQLiteTaskStorage(TaskStorage):
     """Персистентное хранилище задач в SQLite."""
 
-    def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or get_settings().database_path
+    def __init__(self, db_path: str):
+        self.db_path = db_path
         self._init_db()
 
     def _init_db(self):

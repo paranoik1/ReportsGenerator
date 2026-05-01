@@ -1,11 +1,11 @@
 import subprocess
+import structlog
 from pathlib import Path
 from bs4 import BeautifulSoup
 from magic import Magic
 from pypandoc import convert_file  # type: ignore
 from pypdf import PdfReader
 from typing import Literal
-import structlog
 
 from .md2docx import html_to_docx, markdown_to_html_safe
 from .orchestrator import Orchestrator
