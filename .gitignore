@@ -1,12 +1,46 @@
-tmp
-uploads
-.venv
-.mypy_cache
-__pycache__
+```
+# Dependencies
+.venv/
+venv/
+__pycache__/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
 .env
-*.ipynb
-exp_*.py
-.idea
-tasks.db
-logs
-.qwen
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Python specific
+*.pyc
+*.pyo
+*.pyd
+*.py~
+*.py.class
+*.py.obj
+*.py.out
+*.py.exe
+*.py.dll
+*.py.so
+*.py.a
+*.py.obj
+*.py.out
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.coverage
+coverage/
+htmlcov/
+
+# System files
+.DS_Store
+Thumbs.db
+```
