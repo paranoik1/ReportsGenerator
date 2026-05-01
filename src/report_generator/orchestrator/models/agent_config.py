@@ -19,6 +19,5 @@ class AgentConfigs:
     """Конфигурации моделей для всех AI агентов."""
 
     document_analyst: AgentModelConfig = field(default_factory=AgentModelConfig)
-    template_analyst: AgentModelConfig = field(default_factory=AgentModelConfig)
     user_prompt_analyst: AgentModelConfig = field(default_factory=AgentModelConfig)
     formatter: AgentModelConfig = field(default_factory=AgentModelConfig)

@@ -23,5 +23,4 @@ class StateAgents:
 
     finished: bool = False
     documents: list[Document] = field(default_factory=list)
-    template: Document | None = None
     images: list[ImageDocument] = field(default_factory=list)

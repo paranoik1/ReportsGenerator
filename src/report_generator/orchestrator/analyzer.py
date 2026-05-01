@@ -152,33 +152,6 @@ class AnalyzerMixin:
         self.log.info("documents_summarized", blocks_count=len(all_blocks))
         return all_blocks
 
-    def _template_specs_extract(self, template: Document) -> DataBlock:
-        """Извлекает спецификации из шаблона."""
-        model = self.MODELS_ROLES["template_analyst"]
-        full_system_prompt = model.render_system_prompt()
-        template_prompt = f"Документ:\n{template.content}"
-        messages = [
-            {"role": "system", "content": full_system_prompt},
-            {"role": "user", "content": template_prompt},
-        ]
-
-        self.log.debug(
-            "calling_template_analyst",
-            template_path=template.filepath,
-            prompt_len=len(full_system_prompt) + len(template_prompt),
-        )
-
-        content = self.run_agent("template_analyst", messages)
-        if not content:
-            self.log.critical("template_specs_extracted_failed")
-            raise RuntimeError("Не удалось извлечь спецификации шаблона")
-
-        self.log.info("template_specs_extracted", content_len=len(content))
-        return DataBlock(
-            description="Структура и форматирование шаблона отчёта",
-            content=content,
-        )
-
     def _user_prompt_data_extract(self, user_prompt: str) -> list[DataBlock]:
         """Извлекает данные из пользовательского промпта."""
         model = self.MODELS_ROLES["user_prompt_analyst"]
@@ -235,11 +208,7 @@ class AnalyzerMixin:
                 task_name=task_result.task_name,
                 error=str(task_result.error),
             )
-            # if task_result.task_name == "template":
-            #     raise RuntimeError(
-            #         f"Критическая ошибка анализа шаблона: {task_result.error}"
-            #     )
-            return  # Некритические ошибки просто логируем
+            return
 
         dbr = state.data_blocks_registry
         result = task_result.result
@@ -251,10 +220,6 @@ class AnalyzerMixin:
             self.log.info(
                 "analysis_task_completed", task_name=task_name, blocks_count=len(result)
             )
-
-        elif task_name == "template":
-            dbr.add_block(result)
-            self.log.info("analysis_task_completed", task_name=task_name)
 
         elif task_name == "user_prompt":
             for block in result:
@@ -283,17 +248,6 @@ class AnalyzerMixin:
                     func=self._documents_summarize,
                     args=(state.documents,),
                     is_required=False,  # Можно работать и без документов
-                )
-            )
-
-        # Задача анализа шаблона (только если есть шаблон)
-        if state.template:
-            tasks.append(
-                TaskDefinition(
-                    name="template",
-                    func=self._template_specs_extract,
-                    args=(state.template,),
-                    is_required=True,  # Шаблон критичен, если указан
                 )
             )
 

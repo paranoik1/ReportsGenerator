@@ -162,22 +162,6 @@ class ReportGenerator:
             except (ValueError, subprocess.CalledProcessError):
                 self.log.exception('extract_text_failed', file_path=path)
 
-        template = None
-        if template_path:
-            # soffice используется только для .docx/.odt/.doc файлов
-            # для остальных - дефолтный метод (конвертация через pypandoc или чтение текста)
-            _temp_path = Path(template_path)
-            try:
-                content = extract_text(_temp_path, extractor="soffice")
-                template = Document(filepath=_temp_path, content=content)
-            except ValueError:
-                self.log.exception("soffice_extract_failed")
-                try:
-                    content = extract_text(_temp_path, extractor="default")
-                    template = Document(filepath=_temp_path, content=content)
-                except ValueError:
-                    self.log.exception("template_raw_content_extract_failed")
-                    
         image_docs = [
             ImageDocument(filepath=path, description=desc)
             for path, desc in (images or [])
@@ -187,7 +171,6 @@ class ReportGenerator:
             task_id=self.task_id,
             user_prompt=user_prompt,
             documents=documents,
-            template=template,
             images=image_docs,
         )
 
