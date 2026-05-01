@@ -83,9 +83,11 @@ class BaseOrchestrator:
             max_workers=self.settings.max_parallel_workers
         )
 
-    def __del__(self) -> None:
-        """Освобождает ресурсы при уничтожении объекта."""
-        self.executor.shutdown(wait=False)
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.executor.shutdown(wait=True)
 
     def _execute_request(
         self,

@@ -191,12 +191,12 @@ class ReportGenerator:
             images=image_docs,
         )
 
-        llm_pipeline = Orchestrator(
+        with Orchestrator(
             self.output_dir,
             task_id=self.task_id,
             agent_configs=self.agent_configs,
-        )
-        llm_pipeline.run(state)
+        ) as llm_pipeline:
+            llm_pipeline.run(state)
 
         if not state.report_markdown:
             self.log.error("report_markdown is None")

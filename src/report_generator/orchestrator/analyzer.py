@@ -75,7 +75,7 @@ class AnalyzerMixin:
             lines = block_text.split("\n", maxsplit=1)
 
             if len(lines) < 2:
-                logger.warning("parse_block_error", lines=lines)
+                logger.warning("parsing_block_error", lines=lines)
                 continue
 
             description = lines[0].strip()
@@ -146,7 +146,7 @@ class AnalyzerMixin:
                 )
 
         if len(all_blocks) == 0:
-            self.log.warning("documents_summaraized_failed")
+            self.log.warning("documents_summarized_failed")
             return []
 
         self.log.info("documents_summarized", blocks_count=len(all_blocks))
@@ -235,10 +235,10 @@ class AnalyzerMixin:
                 task_name=task_result.task_name,
                 error=str(task_result.error),
             )
-            if task_result.task_name == "template":
-                raise RuntimeError(
-                    f"Критическая ошибка анализа шаблона: {task_result.error}"
-                )
+            # if task_result.task_name == "template":
+            #     raise RuntimeError(
+            #         f"Критическая ошибка анализа шаблона: {task_result.error}"
+            #     )
             return  # Некритические ошибки просто логируем
 
         dbr = state.data_blocks_registry
