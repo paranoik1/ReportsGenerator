@@ -211,14 +211,10 @@ class AnalyzerMixin:
                 task_name=task_result.task_name,
                 error=str(task_result.error),
             )
-<<<<<<< code-review-and-improvements-cf10f
             if isinstance(task_result.error, PermissionDeniedError):
                 raise task_result.error
             
             return  # Некритические ошибки просто логируем
-=======
-            return
->>>>>>> master
 
         dbr = state.data_blocks_registry
         result = task_result.result
