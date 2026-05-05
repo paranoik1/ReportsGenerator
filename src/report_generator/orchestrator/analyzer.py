@@ -4,6 +4,7 @@ import re
 from concurrent.futures import Future, as_completed
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
+from openai import PermissionDeniedError
 
 import structlog
 
@@ -138,6 +139,8 @@ class AnalyzerMixin:
             try:
                 blocks = future.result()
                 all_blocks.extend(blocks)
+            except PermissionDeniedError:
+                raise
             except Exception as ex:
                 self.log.exception(
                     "document_analysis_exception",
@@ -208,7 +211,14 @@ class AnalyzerMixin:
                 task_name=task_result.task_name,
                 error=str(task_result.error),
             )
+<<<<<<< code-review-and-improvements-cf10f
+            if isinstance(task_result.error, PermissionDeniedError):
+                raise task_result.error
+            
+            return  # Некритические ошибки просто логируем
+=======
             return
+>>>>>>> master
 
         dbr = state.data_blocks_registry
         result = task_result.result

@@ -34,7 +34,7 @@ def create_task_dirs(task_id: str) -> tuple[str, str]:
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return jsonify({'status': 'run'})
 
 
 @app.route("/start", methods=["POST"])

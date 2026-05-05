@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # === Модели LLM ===
     model_analyst: str = Field(
-        default="minimax-m2.7:cloud",
+        default="qwen3.5:cloud",
         description="Модель для анализаторов (документы, шаблоны, промпты)",
     )
     model_formatter: str = Field(
