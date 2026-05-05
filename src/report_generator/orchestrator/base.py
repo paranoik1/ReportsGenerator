@@ -7,6 +7,7 @@ from typing import Any
 
 import structlog
 from openai import OpenAI
+from openai import PermissionDeniedError
 from openai.types.chat.chat_completion import ChatCompletion
 
 from config import Settings, get_settings
@@ -124,7 +125,13 @@ class BaseOrchestrator:
         start_time = time.time()
         try:
             response = effective_client.chat.completions.create(**request_params)  # type: ignore
-        except:
+        except PermissionDeniedError:
+            duration = time.time() - start_time
+            self.log.exception(
+                "llm_permission_denied", model=model.name, duration_sec=round(duration, 2)
+            )
+            raise
+        except Exception:
             duration = time.time() - start_time
             self.log.exception(
                 "llm_request_failed", model=model.name, duration_sec=round(duration, 2)
@@ -185,16 +192,12 @@ class BaseOrchestrator:
         # Используем агент-специфичный клиент
         client, base_url, api_key = _create_client(agent_config, self.settings)
 
-        try:
-            response = self._execute_request(
-                model=model,
-                messages=messages,
-                client=client,
-                **kwargs,
-            )
-        except Exception as ex:
-            self.log.exception("llm_request_error", error=str(ex))
-            return None
+        response = self._execute_request(
+            model=model,
+            messages=messages,
+            client=client,
+            **kwargs,
+        )
 
         if not response.choices:
             self.log.warning("empty_choices_response")

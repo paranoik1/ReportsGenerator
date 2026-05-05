@@ -12,7 +12,7 @@ from typing import Optional
 from dataclasses import dataclass, field
 
 import streamlit as st
-import requests
+import requests # type: ignore
 from PIL import Image
 import io
 
@@ -26,8 +26,6 @@ st.set_page_config(
 
 # Константы
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5000")
-MAX_FILE_SIZE_MB = 10
-ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.md'}
 ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 
 # Стили CSS
@@ -71,6 +69,7 @@ st.markdown("""
 class ImageItem:
     """Элемент изображения с описанием"""
     id: str
+    mime_type: str
     file: Optional[bytes] = None
     filename: str = ""
     description: str = ""
@@ -109,26 +108,9 @@ def generate_image_id() -> str:
     return f"img_{st.session_state.image_counter}_{uuid.uuid4().hex[:8]}"
 
 
-def validate_file(file, allowed_extensions: set, max_size_mb: int = MAX_FILE_SIZE_MB) -> tuple[bool, str]:
-    """Валидация файла"""
-    file_ext = Path(file.name).suffix.lower()
-    
-    if file_ext not in allowed_extensions:
-        return False, f"Неподдерживаемый формат: {file_ext}"
-    
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)
-    
-    if file_size > max_size_mb * 1024 * 1024:
-        return False, f"Файл слишком большой ({file_size / 1024 / 1024:.2f} MB, макс. {max_size_mb} MB)"
-    
-    return True, ""
-
-
-def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bool = False, ai_model: str = ""):
+def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bool = False, ai_model: str = "") -> tuple[ImageItem, int]:
     """Добавление изображения из загруженного файла"""
-    image_id = generate_image_id()
+    image_id = uploaded_file.file_id
     
     # Чтение файла в байты
     file_bytes = uploaded_file.getvalue()
@@ -142,6 +124,7 @@ def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bo
     
     image_item = ImageItem(
         id=image_id,
+        mime_type=uploaded_file.type,
         file=file_bytes,
         filename=uploaded_file.name,
         description=description,
@@ -151,48 +134,43 @@ def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bo
     )
     
     st.session_state.images.append(image_item)
+    return image_item, len(st.session_state.images) - 1
 
 
-def add_image_from_clipboard(image_data: bytes, description: str = ""):
-    """Добавление изображения из буфера обмена"""
-    image_id = generate_image_id()
+# def add_image_from_clipboard(image_data: bytes, description: str = ""):
+#     """Добавление изображения из буфера обмена"""
+#     image_id = generate_image_id()
     
-    # Создание превью
-    image = Image.open(io.BytesIO(image_data))
-    preview = io.BytesIO()
-    image.thumbnail((300, 300))
-    image.save(preview, format=image.format or 'PNG')
-    preview_data = preview.getvalue()
+#     # Создание превью
+#     image = Image.open(io.BytesIO(image_data))
+#     preview = io.BytesIO()
+#     image.thumbnail((300, 300))
+#     image.save(preview, format=image.format or 'PNG')
+#     preview_data = preview.getvalue()
     
-    image_item = ImageItem(
-        id=image_id,
-        file=image_data,
-        filename=f"clipboard_{image_id}.png",
-        description=description,
-        preview_data=preview_data
-    )
+#     image_item = ImageItem(
+#         id=image_id,
+#         file=image_data,
+#         filename=f"clipboard_{image_id}.png",
+#         description=description,
+#         preview_data=preview_data
+#     )
     
-    st.session_state.images.append(image_item)
+#     st.session_state.images.append(image_item)
 
 
-def remove_image(image_id: str):
-    """Удаление изображения из списка"""
-    st.session_state.images = [img for img in st.session_state.images if img.id != image_id]
-
-
-def clear_all_images():
-    """Очистка всех изображений"""
-    st.session_state.images = []
-    st.session_state.image_counter = 0
+# def remove_image(image_id: str):
+#     """Удаление изображения из списка"""
+#     st.session_state.images = [img for img in st.session_state.images if img.id != image_id]
 
 
 def render_image_preview(image_item: ImageItem, index: int):
     """Отрисовка превью изображения с элементами управления"""
-    col1, col2, col3 = st.columns([1, 3, 1])
+    col1, col2 = st.columns([1, 3])
     
     with col1:
         if image_item.preview_data:
-            st.image(image_item.preview_data, use_container_width=True)
+            st.image(image_item.preview_data, width='stretch')
         else:
             st.write("Нет превью")
     
@@ -245,22 +223,21 @@ def render_image_preview(image_item: ImageItem, index: int):
         else:
             st.session_state.images[index].ai_generated = False
     
-    with col3:
-        if st.button("❌", key=f"remove_{image_item.id}", help="Удалить изображение"):
-            remove_image(image_item.id)
-            st.rerun()
+    # with col3:
+    #     if st.button("❌", key=f"remove_{image_item.id}", help="Удалить изображение"):
+    #         remove_image(image_item.id)
+    #         st.rerun()
 
 
 def render_ai_config_section():
     """Отрисовка секции настройки AI моделей"""
-    with st.expander("⚙️ Настройки AI моделей", icon="⚙️"):
+    with st.expander("Настройки AI моделей", icon="⚙️"):
         st.markdown("*Настройте подключение к AI моделям для каждого агента. Если оставить пустым — будут использоваться настройки по умолчанию.*")
         
         cols = st.columns(2)
         
         agents = [
             ("📄 Document Analyst", "document_analyst", "Анализ загруженных документов"),
-            ("📋 Template Analyst", "template_analyst", "Анализ шаблона отчёта"),
             ("💬 User Prompt Analyst", "user_prompt_analyst", "Анализ запроса пользователя"),
             ("📝 Formatter", "formatter", "Форматирование итогового отчёта"),
         ]
@@ -315,8 +292,7 @@ def render_main_form():
     
     # Загрузка файлов
     uploaded_files = st.file_uploader(
-        "Прикрепить файлы (PDF, DOCX, TXT, MD)",
-        type=['pdf', 'docx', 'txt', 'md'],
+        "Прикрепить файлы (PDF, DOCX, TXT, MD и другие текстовые)",
         accept_multiple_files=True,
         help="Можно выбрать несколько файлов"
     )
@@ -325,18 +301,13 @@ def render_main_form():
     valid_files = []
     if uploaded_files:
         for file in uploaded_files:
-            is_valid, error_msg = validate_file(file, ALLOWED_EXTENSIONS)
-            if is_valid:
-                valid_files.append(file)
-            else:
-                st.warning(f"⚠️ Файл '{file.name}' пропущен: {error_msg}")
-    
-    # Шаблон отчёта
-    template_file = st.file_uploader(
-        "Пример отчёта (опционально)",
-        type=['docx', 'pdf'],
-        help="Файл-образец, по структуре которого нужно сформировать отчёт"
-    )
+            # NOTE: будем отправлять API запрос на сервер для проверки корректности типа файла
+
+            # is_valid, error_msg = validate_file(file, ALLOWED_EXTENSIONS)
+            # if is_valid:
+            valid_files.append(file)
+            # else:
+            #     st.warning(f"⚠️ Файл '{file.name}' пропущен: {error_msg}")
     
     # Секция изображений
     st.markdown("### 🖼️ Изображения")
@@ -349,14 +320,27 @@ def render_main_form():
         accept_multiple_files=True,
         key="image_uploader"
     )
-    
+
+    def get_exists_image(img_file) -> ImageItem | None:
+        for img in st.session_state.images:
+            if img.id == img_file.file_id:
+                return img
+            
+        return None
+
+    saved_images = []
     if uploaded_images:
         for img_file in uploaded_images:
             # Проверка, не добавлено ли уже это изображение
-            already_exists = any(img.filename == img_file.name for img in st.session_state.images)
-            if not already_exists:
-                add_image_from_upload(img_file)
-    
+            image_exist = get_exists_image(img_file)
+            if image_exist:
+                image = image_exist
+            else:
+                image, _ = add_image_from_upload(img_file)
+
+            saved_images.append(image)
+
+    st.session_state.images = saved_images
     # Отображение добавленных изображений
     if st.session_state.images:
         st.markdown("#### Добавленные изображения:")
@@ -365,16 +349,12 @@ def render_main_form():
                 render_image_preview(image_item, idx)
     
     # Кнопки управления изображениями
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("+ Добавить изображение", use_container_width=True):
-            # Создаём фиктивный файл для триггера
-            st.info("💡 Используйте загрузчик файлов выше для добавления изображений")
+    # col2 = st.columns(1)
     
-    with col2:
-        if st.button("🗑️ Очистить все изображения", use_container_width=True, type="secondary"):
-            clear_all_images()
-            st.rerun()
+    # with col2[0]:
+    #     if st.button("🗑️ Очистить все изображения", use_container_width=True, type="secondary"):
+    #         clear_all_images()
+    #         st.rerun()
     
     # Кнопка запуска
     st.markdown("---")
@@ -388,7 +368,7 @@ def render_main_form():
             disabled=not prompt or st.session_state.polling
         )
     
-    return prompt, valid_files, template_file, submit_button
+    return prompt, valid_files, submit_button
 
 
 def render_progress_section(task_id: str):
@@ -512,7 +492,7 @@ def poll_task_status(task_id: str, status_placeholder, progress_placeholder) -> 
         raise Exception(f"Ошибка соединения: {str(e)}")
 
 
-def submit_task(prompt: str, files: list, template_file, images: list[ImageItem], agent_configs: dict):
+def submit_task(prompt: str, files: list, images: list[ImageItem], agent_configs: dict):
     """Отправка задачи на сервер"""
     try:
         # Подготовка данных для отправки
@@ -523,16 +503,12 @@ def submit_task(prompt: str, files: list, template_file, images: list[ImageItem]
         for file in files:
             files_payload.append(('files', (file.name, file.getvalue(), 'application/octet-stream')))
         
-        # Добавление шаблона
-        if template_file:
-            files_payload.append(('template', (template_file.name, template_file.getvalue(), 'application/octet-stream')))
-        
         # Добавление изображений с описаниями
         for idx, image_item in enumerate(images):
             if image_item.file and image_item.description:
                 files_payload.append((
                     f'image_{idx}',
-                    (image_item.filename, image_item.file, 'image/png')
+                    (image_item.filename, image_item.file, image_item.mime_type)
                 ))
                 form_data[f'desc_{idx}'] = image_item.description
         
@@ -611,7 +587,7 @@ def main():
     # Основной контент
     ai_configs = render_ai_config_section()
     
-    prompt, files, template_file, submit_button = render_main_form()
+    prompt, files, submit_button = render_main_form()
     
     # Обработка отправки формы
     if submit_button:
@@ -627,7 +603,6 @@ def main():
                 task_id = submit_task(
                     prompt=prompt,
                     files=files,
-                    template_file=template_file,
                     images=st.session_state.images,
                     agent_configs=ai_configs
                 )
@@ -672,10 +647,10 @@ def main():
         render_result_section(st.session_state.result_data)
         
         # Кнопка новой задачи
-        if st.button("📝 Создать новую задачу", type="primary"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+        # if st.button("📝 Создать новую задачу", type="primary"):
+        #     for key in list(st.session_state.keys()):
+        #         del st.session_state[key]
+        #     st.rerun()
 
 
 if __name__ == "__main__":

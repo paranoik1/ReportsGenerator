@@ -1,12 +1,15 @@
-```
 # Dependencies
 .venv/
 venv/
 __pycache__/
+.mypy_cache/
 
 # Logs and temp files
 *.log
 *.tmp
+logs/
+tmp/
+uploads/
 
 # Environment
 .env
@@ -43,4 +46,7 @@ htmlcov/
 # System files
 .DS_Store
 Thumbs.db
-```
+*.db
+.qwen
+exp_*.py
+*.ipynb

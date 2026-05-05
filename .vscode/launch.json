@@ -17,6 +17,27 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+        },
+        {
+            "name": "Debug Streamlit App",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": [
+                "streamlit",
+                "run",
+                "src/streamlit_app.py",
+                "--server.port",
+                "8501",
+                "--server.address",
+                "localhost"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            },
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
