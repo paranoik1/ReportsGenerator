@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from config import get_settings
 from report_generator import ReportGenerator
 
 if TYPE_CHECKING:
@@ -17,11 +16,8 @@ if TYPE_CHECKING:
 class TaskWorkerPool:
     """Пул воркеров для выполнения задач."""
 
-    def __init__(self, storage: "TaskStorage", max_workers: int | None = None):
-        settings = get_settings()
-        self.executor = ThreadPoolExecutor(
-            max_workers=max_workers or settings.max_workers
-        )
+    def __init__(self, storage: "TaskStorage", max_workers: int):
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.storage = storage
         self._log = structlog.get_logger(__name__)
 
@@ -86,8 +82,6 @@ class TaskWorkerPool:
                 duration_sec=round(duration, 2),
                 error_type=type(e).__name__,
             )
-            raise
-
         finally:
             task.completed_at = time.time()
             self.storage.save_task(task)

@@ -18,7 +18,6 @@ class Task:
     status: TaskStatus = "queued"
     user_prompt: str = ""
     file_paths: list[str] = field(default_factory=list)
-    template_path: str | None = None
     images: list[tuple[str, str]] = field(default_factory=list)
     agent_configs: AgentConfigs | None = None
 

@@ -1,11 +1,11 @@
 import subprocess
+import structlog
 from pathlib import Path
 from bs4 import BeautifulSoup
 from magic import Magic
 from pypandoc import convert_file  # type: ignore
 from pypdf import PdfReader
 from typing import Literal
-import structlog
 
 from .md2docx import html_to_docx, markdown_to_html_safe
 from .orchestrator import Orchestrator
@@ -162,22 +162,6 @@ class ReportGenerator:
             except (ValueError, subprocess.CalledProcessError):
                 self.log.exception('extract_text_failed', file_path=path)
 
-        template = None
-        if template_path:
-            # soffice используется только для .docx/.odt/.doc файлов
-            # для остальных - дефолтный метод (конвертация через pypandoc или чтение текста)
-            _temp_path = Path(template_path)
-            try:
-                content = extract_text(_temp_path, extractor="soffice")
-                template = Document(filepath=_temp_path, content=content)
-            except ValueError:
-                self.log.exception("soffice_extract_failed")
-                try:
-                    content = extract_text(_temp_path, extractor="default")
-                    template = Document(filepath=_temp_path, content=content)
-                except ValueError:
-                    self.log.exception("template_raw_content_extract_failed")
-                    
         image_docs = [
             ImageDocument(filepath=path, description=desc)
             for path, desc in (images or [])
@@ -187,16 +171,15 @@ class ReportGenerator:
             task_id=self.task_id,
             user_prompt=user_prompt,
             documents=documents,
-            template=template,
             images=image_docs,
         )
 
-        llm_pipeline = Orchestrator(
+        with Orchestrator(
             self.output_dir,
             task_id=self.task_id,
             agent_configs=self.agent_configs,
-        )
-        llm_pipeline.run(state)
+        ) as llm_pipeline:
+            llm_pipeline.run(state)
 
         if not state.report_markdown:
             self.log.error("report_markdown is None")

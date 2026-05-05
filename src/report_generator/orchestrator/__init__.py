@@ -30,10 +30,6 @@ def _build_models_roles(
     doc_config = get_agent_config("document_analyst")
     model_doc = resolve_model(settings.model_analyst, doc_config)
 
-    # Template Analyst
-    tmpl_config = get_agent_config("template_analyst")
-    model_tmpl = resolve_model(settings.model_analyst, tmpl_config)
-
     # User Prompt Analyst
     user_config = get_agent_config("user_prompt_analyst")
     model_user = resolve_model(settings.model_analyst, user_config)
@@ -46,11 +42,6 @@ def _build_models_roles(
         "document_analyst": AiModel(
             name=model_doc,
             system_prompt_template="document_analyst.j2",
-            temperature=0,
-        ),
-        "template_analyst": AiModel(
-            name=model_tmpl,
-            system_prompt_template="template_analyst.j2",
             temperature=0,
         ),
         "user_prompt_analyst": AiModel(

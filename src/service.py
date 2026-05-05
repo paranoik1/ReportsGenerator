@@ -13,15 +13,14 @@ from setup_structlog import setup_logging
 from task_manage import SQLiteTaskStorage, TaskWorkerPool, Task
 
 
-
-setup_logging()
+setup_logging(settings.log_dir)
 
 app = Flask(__name__)
 logger = structlog.get_logger("flask_service")
 
 
 task_storage = SQLiteTaskStorage(db_path=str(settings.database_path))
-worker_pool = TaskWorkerPool(task_storage)
+worker_pool = TaskWorkerPool(task_storage, settings.max_workers)
 
 
 def create_task_dirs(task_id: str) -> tuple[str, str]:
@@ -42,7 +41,6 @@ def index():
 def start():
     user_prompt = request.form.get("prompt")
     files = request.files.getlist("files")
-    template_file = request.files.get("template")
 
     if not user_prompt:
         jsonify_response = jsonify({"error": "Отсутствует пользовательский запрос"})
@@ -58,12 +56,6 @@ def start():
             path = os.path.join(task_upload_dir, filename)
             file.save(path)
             saved_paths.append(path)
-
-    template_path = None
-    if template_file and template_file.filename:
-        filename = secure_filename(f"template_{template_file.filename}")
-        template_path = os.path.join(task_upload_dir, filename)
-        template_file.save(template_path)
 
     # Обработка изображений с описаниями
     images = []
@@ -95,7 +87,6 @@ def start():
         return config
 
     document_analyst_config = parse_agent_config("document_analyst")
-    template_analyst_config = parse_agent_config("template_analyst")
     user_prompt_analyst_config = parse_agent_config("user_prompt_analyst")
     formatter_config = parse_agent_config("formatter")
 
@@ -103,14 +94,12 @@ def start():
     if any(
         [
             document_analyst_config.is_configured(),
-            template_analyst_config.is_configured(),
             user_prompt_analyst_config.is_configured(),
             formatter_config.is_configured(),
         ]
     ):
         agent_configs = AgentConfigs(
             document_analyst=document_analyst_config,
-            template_analyst=template_analyst_config,
             user_prompt_analyst=user_prompt_analyst_config,
             formatter=formatter_config,
         )
@@ -122,7 +111,6 @@ def start():
         tmp_dir=task_tmp_dir,
         user_prompt=user_prompt,
         file_paths=saved_paths,
-        template_path=template_path,
         images=images,
         agent_configs=agent_configs,
     )
