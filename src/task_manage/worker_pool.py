@@ -58,7 +58,6 @@ class TaskWorkerPool:
             state = report_generator.generate_report(
                 user_prompt=task.user_prompt,
                 file_paths=task.file_paths,
-                template_path=task.template_path,
                 images=task.images,
             )
 
