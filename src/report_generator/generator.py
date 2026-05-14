@@ -129,7 +129,6 @@ class ReportGenerator:
         self,
         user_prompt: str,
         file_paths: list[str],
-        template_path: str | None = None,
         images: list[tuple[str, str]] | None = None,
     ) -> StateAgents:
         """
