@@ -67,6 +67,10 @@ class Settings(BaseSettings):
         default="qwen3.5:cloud",
         description="Модель для форматирования отчёта",
     )
+    model_image_describer: str = Field(
+        default="qwen3.5:cloud",
+        description="Модель для генерации описаний изображений",
+    )
 
     # === Flask ===
     flask_host: str = Field(default="127.0.0.1", description="Хост Flask сервера")

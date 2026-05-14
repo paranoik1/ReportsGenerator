@@ -4,10 +4,7 @@ Streamlit приложение для AI Report Generator
 """
 
 import os
-import uuid
 import time
-import base64
-from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
 
@@ -70,12 +67,10 @@ class ImageItem:
     """Элемент изображения с описанием"""
     id: str
     mime_type: str
-    file: Optional[bytes] = None
-    filename: str = ""
+    file: bytes
+    filename: str
     description: str = ""
-    preview_data: Optional[bytes] = None
-    ai_generated: bool = False
-    ai_model: str = ""
+    preview_data: bytes | None = None
 
 
 @dataclass
@@ -102,13 +97,7 @@ def init_session_state():
         st.session_state.result_data = None
 
 
-def generate_image_id() -> str:
-    """Генерация уникального ID для изображения"""
-    st.session_state.image_counter += 1
-    return f"img_{st.session_state.image_counter}_{uuid.uuid4().hex[:8]}"
-
-
-def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bool = False, ai_model: str = "") -> tuple[ImageItem, int]:
+def add_image_from_upload(uploaded_file, description: str = "") -> tuple[ImageItem, int]:
     """Добавление изображения из загруженного файла"""
     image_id = uploaded_file.file_id
     
@@ -128,40 +117,11 @@ def add_image_from_upload(uploaded_file, description: str = "", ai_generated: bo
         file=file_bytes,
         filename=uploaded_file.name,
         description=description,
-        preview_data=preview_data,
-        ai_generated=ai_generated,
-        ai_model=ai_model
+        preview_data=preview_data
     )
     
     st.session_state.images.append(image_item)
     return image_item, len(st.session_state.images) - 1
-
-
-# def add_image_from_clipboard(image_data: bytes, description: str = ""):
-#     """Добавление изображения из буфера обмена"""
-#     image_id = generate_image_id()
-    
-#     # Создание превью
-#     image = Image.open(io.BytesIO(image_data))
-#     preview = io.BytesIO()
-#     image.thumbnail((300, 300))
-#     image.save(preview, format=image.format or 'PNG')
-#     preview_data = preview.getvalue()
-    
-#     image_item = ImageItem(
-#         id=image_id,
-#         file=image_data,
-#         filename=f"clipboard_{image_id}.png",
-#         description=description,
-#         preview_data=preview_data
-#     )
-    
-#     st.session_state.images.append(image_item)
-
-
-# def remove_image(image_id: str):
-#     """Удаление изображения из списка"""
-#     st.session_state.images = [img for img in st.session_state.images if img.id != image_id]
 
 
 def render_image_preview(image_item: ImageItem, index: int):
@@ -191,37 +151,33 @@ def render_image_preview(image_item: ImageItem, index: int):
         if new_description != image_item.description:
             st.session_state.images[index].description = new_description
         
-        # Опция AI-генерации описания
-        ai_enabled = st.checkbox(
-            "🤖 Сгенерировать описание с помощью ИИ",
-            value=image_item.ai_generated,
-            key=f"ai_{image_item.id}",
-            help="Автоматически создать описание изображения используя выбранную модель"
-        )
-        
-        if ai_enabled:
-            ai_model = st.selectbox(
-                "Модель для анализа",
-                options=["gpt-4-vision", "claude-3-vision", "llava", "qwen-vl"],
-                index=0,
-                key=f"model_{image_item.id}",
-                label_visibility="collapsed"
-            )
-            
-            # Сохранение настроек AI
-            st.session_state.images[index].ai_generated = True
-            st.session_state.images[index].ai_model = ai_model
-            
-            # Кнопка генерации
-            if st.button("✨ Сгенерировать", key=f"gen_{image_item.id}"):
-                with st.spinner("Анализируем изображение..."):
-                    # TODO: Здесь будет вызов API для генерации описания
-                    # Пока заглушка
-                    time.sleep(1)
-                    st.session_state.images[index].description = "[AI] На изображении показано..."
-                    st.rerun()
-        else:
-            st.session_state.images[index].ai_generated = False
+        # Кнопка генерации
+        if st.button("✨ Сгенерировать", key=f"gen_{image_item.id}"):
+            with st.spinner("Анализируем изображение..."):
+                try:
+                    # Подготовка данных для отправки на сервер
+                    img_buffer = io.BytesIO(image_item.file)
+
+                    files = {'image': (image_item.filename, img_buffer.getvalue(), image_item.mime_type)}
+
+                    response = requests.post(
+                        f"{API_BASE_URL}/describe-image",
+                        files=files,
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        st.session_state.images[index].description = result.get('description', '')
+                        st.success("Описание сгенерировано!")
+                    else:
+                        error_msg = response.json().get('error', 'Неизвестная ошибка')
+                        st.error(f"Ошибка генерации: {error_msg}")
+
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Ошибка подключения к серверу: {e}")
+                except Exception as e:
+                    st.error(f"Ошибка: {e}")
     
     # with col3:
     #     if st.button("❌", key=f"remove_{image_item.id}", help="Удалить изображение"):
@@ -240,6 +196,7 @@ def render_ai_config_section():
             ("📄 Document Analyst", "document_analyst", "Анализ загруженных документов"),
             ("💬 User Prompt Analyst", "user_prompt_analyst", "Анализ запроса пользователя"),
             ("📝 Formatter", "formatter", "Форматирование итогового отчёта"),
+            ("🖼️ ImageDescriber", "image_describer", "Генерация описаний к изображениям (используется исключительно при нажатии на кнопку \"Сгенерировать\")"),
         ]
         
         configs = {}

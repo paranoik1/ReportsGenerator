@@ -1,13 +1,17 @@
 from config import init_settings, APP_DIR
+from report_generator.orchestrator.prompt_manager import get_prompt_manager
 
 settings = init_settings()
 
+import io
+import json
 import os
 import uuid
 import structlog
+import base64
 from flask import Flask, jsonify, make_response, render_template, request, send_file
 from werkzeug.utils import secure_filename
-
+from openai import OpenAI
 from report_generator.orchestrator.models import AgentConfigs, AgentModelConfig
 from setup_structlog import setup_logging
 from task_manage import SQLiteTaskStorage, TaskWorkerPool, Task
@@ -198,6 +202,63 @@ def download(task_id):
             download_name=f"report_{task_id[:8]}.docx",
         )
     return jsonify({"error": "File not found"}), 404
+
+
+@app.route("/describe-image", methods=["POST"])
+def describe_image():
+    """Генерация описания изображения с помощью LLM."""
+    # Получаем файл изображения
+    image_file = request.files.get("image")
+    if not image_file or not image_file.filename:
+        return jsonify({"error": "Изображение не предоставлено"}), 400
+
+    # Опциональная пользовательская конфигурация модели
+    model_name = request.form.get("model", settings.model_image_describer)
+    base_url = request.form.get("base_url", settings.llm_base_url)
+    api_key = request.form.get("api_key", settings.llm_api_key)
+
+    # Читаем и кодируем изображение в base64
+    image_bytes = image_file.read()
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    mime_type = image_file.content_type or "image/png"
+    image_url = f"data:{mime_type};base64,{image_b64}"
+
+    # Рендерим промпт через Jinja2
+    prompt_manager = get_prompt_manager()
+    system_prompt = prompt_manager.render("image_describer.j2")
+
+    # Создаём клиент и вызываем LLM
+    client = OpenAI(base_url=base_url, api_key=api_key)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url},
+                }
+            ],
+        },
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            temperature=0,
+            timeout=settings.llm_timeout,
+        )
+
+        description = response.choices[0].message.content
+
+        logger.info("image_description_generated", model=model_name)
+        return jsonify({"description": description})
+
+    except Exception as e:
+        logger.exception("image_description_failed", error=str(e))
+        return jsonify({"error": f"Ошибка генерации описания: {str(e)}"}), 500
 
 
 def on_start():
